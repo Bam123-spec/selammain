@@ -1,7 +1,6 @@
 "use client"
 
 import { Button } from "@/components/ui/button"
-import Link from "next/link"
 import { CheckCircle2, BookOpen, Car, GraduationCap, ArrowRight, Clock, MapPin, ChevronDown } from "lucide-react"
 import { motion, Variants } from "framer-motion"
 import {
@@ -11,7 +10,8 @@ import {
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 
-import { useSearchParams } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
+import { useEffect } from "react"
 
 // Animation Variants
 const containerVariants: Variants = {
@@ -44,9 +44,21 @@ const floatAnimation = {
 }
 
 export default function DriversEducationPage() {
+    const router = useRouter()
     const searchParams = useSearchParams()
     const location = searchParams.get('location')
     const isBethesda = location === 'bethesda'
+    const silverSpringHref = "/services/drivers-education-packages?location=silver-spring"
+    const bethesdaHref = "/services/drivers-education-packages?location=bethesda"
+
+    useEffect(() => {
+        router.prefetch(silverSpringHref)
+        router.prefetch(bethesdaHref)
+    }, [router, silverSpringHref, bethesdaHref])
+
+    const goToPackages = (href: string) => {
+        router.push(href)
+    }
 
     return (
         <div className="flex flex-col min-h-screen bg-white">
@@ -102,8 +114,8 @@ export default function DriversEducationPage() {
                                         </Button>
                                     </DropdownMenuTrigger>
                                     <DropdownMenuContent align="start" className="w-[260px] p-2">
-                                        <DropdownMenuItem asChild className="p-3 cursor-pointer">
-                                            <Link href="/services/drivers-education-packages?location=silver-spring" className="flex items-center gap-3">
+                                        <DropdownMenuItem className="p-3 cursor-pointer" onSelect={() => goToPackages(silverSpringHref)}>
+                                            <div className="flex items-center gap-3">
                                                 <div className="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center shrink-0">
                                                     <MapPin className="w-4 h-4 text-red-600" />
                                                 </div>
@@ -111,10 +123,10 @@ export default function DriversEducationPage() {
                                                     <span className="font-bold text-gray-900">Silver Spring</span>
                                                     <span className="text-xs text-gray-500 truncate block">10111 Colesville Rd Suite 103</span>
                                                 </div>
-                                            </Link>
+                                            </div>
                                         </DropdownMenuItem>
-                                        <DropdownMenuItem asChild className="p-3 cursor-pointer">
-                                            <Link href="/services/drivers-education-packages?location=bethesda" className="flex items-center gap-3">
+                                        <DropdownMenuItem className="p-3 cursor-pointer" onSelect={() => goToPackages(bethesdaHref)}>
+                                            <div className="flex items-center gap-3">
                                                 <div className="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center shrink-0">
                                                     <MapPin className="w-4 h-4 text-red-600" />
                                                 </div>
@@ -122,7 +134,7 @@ export default function DriversEducationPage() {
                                                     <span className="font-bold text-gray-900">Bethesda</span>
                                                     <span className="text-xs text-gray-500">Suite 105</span>
                                                 </div>
-                                            </Link>
+                                            </div>
                                         </DropdownMenuItem>
                                     </DropdownMenuContent>
                                 </DropdownMenu>
@@ -296,8 +308,8 @@ export default function DriversEducationPage() {
                                 </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="center" className="w-[280px] p-2">
-                                <DropdownMenuItem asChild className="p-3 cursor-pointer">
-                                    <Link href="/services/drivers-education-packages?location=silver-spring" className="flex items-center gap-3">
+                                <DropdownMenuItem className="p-3 cursor-pointer" onSelect={() => goToPackages(silverSpringHref)}>
+                                    <div className="flex items-center gap-3">
                                         <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center shrink-0">
                                             <MapPin className="w-5 h-5 text-red-600" />
                                         </div>
@@ -305,10 +317,10 @@ export default function DriversEducationPage() {
                                             <span className="font-bold text-gray-900 text-base">Silver Spring</span>
                                             <span className="text-xs text-gray-500">Standard Pricing</span>
                                         </div>
-                                    </Link>
+                                    </div>
                                 </DropdownMenuItem>
-                                <DropdownMenuItem asChild className="p-3 cursor-pointer">
-                                    <Link href="/services/drivers-education-packages?location=bethesda" className="flex items-center gap-3">
+                                <DropdownMenuItem className="p-3 cursor-pointer" onSelect={() => goToPackages(bethesdaHref)}>
+                                    <div className="flex items-center gap-3">
                                         <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center shrink-0">
                                             <MapPin className="w-5 h-5 text-red-600" />
                                         </div>
@@ -316,7 +328,7 @@ export default function DriversEducationPage() {
                                             <span className="font-bold text-gray-900 text-base">Bethesda</span>
                                             <span className="text-xs text-gray-500">Premium Pricing</span>
                                         </div>
-                                    </Link>
+                                    </div>
                                 </DropdownMenuItem>
                             </DropdownMenuContent>
                         </DropdownMenu>
