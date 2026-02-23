@@ -53,6 +53,24 @@ const formSchema = z.object({
     phone: z.string().min(10, "Please enter a valid phone number."),
 })
 
+const DIRECT_EMBEDDED_PAID_PLANS = [
+    "driving-practice-1hr",
+    "driving-practice-2hr",
+    "road-test-escort",
+    "road-test-1hr",
+    "road-test-2hr",
+] as const
+
+type DirectPaidPlan = typeof DIRECT_EMBEDDED_PAID_PLANS[number]
+
+const DIRECT_PLAN_DEFAULTS: Record<DirectPaidPlan, { name: string; duration_minutes: number }> = {
+    "driving-practice-1hr": { name: "Driver's Practice (1 Hour)", duration_minutes: 60 },
+    "driving-practice-2hr": { name: "Driver's Practice (2 Hour)", duration_minutes: 120 },
+    "road-test-escort": { name: "Road Test Escort", duration_minutes: 120 },
+    "road-test-1hr": { name: "Road Test Escort + 1 Hour", duration_minutes: 150 },
+    "road-test-2hr": { name: "Road Test Escort + 2 Hour", duration_minutes: 210 },
+}
+
 export function SchedulingForm({ defaultPlan }: { defaultPlan?: string }) {
     const searchParams = useSearchParams()
     const router = useRouter()
@@ -66,6 +84,10 @@ export function SchedulingForm({ defaultPlan }: { defaultPlan?: string }) {
         if (rawPlan === 'road-test-car') return 'road-test-escort' // potential legacy
         return rawPlan
     }, [rawPlan])
+    const isDirectPaidPlan = React.useMemo(
+        () => !!plan && (DIRECT_EMBEDDED_PAID_PLANS as readonly string[]).includes(plan),
+        [plan]
+    )
 
     // Steps: 0 = Service Selection, 1 = Date/Time, 2 = Details, 3 = Success
     const [step, setStep] = React.useState(plan ? 1 : 0)
@@ -101,23 +123,58 @@ export function SchedulingForm({ defaultPlan }: { defaultPlan?: string }) {
 
     // Fetch instructors and services on mount
     React.useEffect(() => {
+        if (isDirectPaidPlan && plan && (DIRECT_PLAN_DEFAULTS as Record<string, any>)[plan]) {
+            const fallback = DIRECT_PLAN_DEFAULTS[plan as DirectPaidPlan]
+            setSelectedServiceDetails((prev) => prev || {
+                id: plan,
+                slug: plan,
+                name: fallback.name,
+                duration_minutes: fallback.duration_minutes,
+                description: "",
+            })
+            setPackageDetails((prev) => prev || {
+                plan_key: plan,
+                duration_minutes: fallback.duration_minutes,
+                instructor_id: null,
+            })
+            setServices([])
+            setInstructors([])
+            return
+        }
+
         const fetchInstructors = async () => {
-            const { data } = await supabase.from('instructors').select('id, full_name, profile_id')
-            if (data) setInstructors(data)
+            try {
+                const { data, error } = await supabase.from('instructors').select('id, full_name, profile_id')
+                if (error) {
+                    console.warn("Unable to load instructors (non-blocking):", error.message)
+                    return
+                }
+                if (data) setInstructors(data)
+            } catch (err) {
+                console.warn("Unable to load instructors (non-blocking):", err)
+            }
         }
         const fetchServices = async () => {
-            const { data } = await supabase.from('services').select('*').eq('is_active', true)
-            if (data) {
-                setServices(data)
-                if (plan) {
-                    const found = data.find(s => s.slug === plan)
-                    if (found) setSelectedServiceDetails(found)
+            try {
+                const { data, error } = await supabase.from('services').select('*').eq('is_active', true)
+                if (error) {
+                    console.warn("Unable to load services (non-blocking):", error.message)
+                    return
                 }
+                if (data) {
+                    setServices(data)
+                    if (plan) {
+                        const found = data.find(s => s.slug === plan)
+                        if (found) setSelectedServiceDetails(found)
+                    }
+                }
+            } catch (err) {
+                console.warn("Unable to load services (non-blocking):", err)
             }
         }
         fetchInstructors()
         fetchServices()
-    }, [plan])
+    }, [isDirectPaidPlan, plan])
 
     // Fetch specific package details whenever selectedService changes
     React.useEffect(() => {
@@ -130,12 +187,30 @@ export function SchedulingForm({ defaultPlan }: { defaultPlan?: string }) {
             'road-test-2hr'
         ].includes(selectedService)) {
             const fetchPkg = async () => {
-                const { data } = await supabase
-                    .from('service_packages')
-                    .select('*')
-                    .eq('plan_key', selectedService)
-                    .single()
-                if (data) setPackageDetails(data)
+                if ((DIRECT_PLAN_DEFAULTS as Record<string, any>)[selectedService]) {
+                    const fallback = DIRECT_PLAN_DEFAULTS[selectedService as DirectPaidPlan]
+                    setPackageDetails({
+                        plan_key: selectedService,
+                        duration_minutes: fallback.duration_minutes,
+                        instructor_id: null,
+                    })
+                    return
+                }
+
+                try {
+                    const { data, error } = await supabase
+                        .from('service_packages')
+                        .select('*')
+                        .eq('plan_key', selectedService)
+                        .single()
+                    if (error) {
+                        console.warn("Unable to load service package (non-blocking):", error.message)
+                        return
+                    }
+                    if (data) setPackageDetails(data)
+                } catch (err) {
+                    console.warn("Unable to load service package (non-blocking):", err)
+                }
             }
             fetchPkg()
         } else {
@@ -327,7 +402,7 @@ export function SchedulingForm({ defaultPlan }: { defaultPlan?: string }) {
         ]
         if (step === 1 && plan && PAID_PLANS.includes(plan)) {
             // Validate date/time + customer details before redirecting to embedded checkout.
-            const isValid = await form.trigger(["date", "time", "name", "email", "phone"])
+            const isValid = await form.trigger(["date", "time"])
             if (!isValid) return
 
             setIsLoading(true)
@@ -635,7 +710,10 @@ export function SchedulingForm({ defaultPlan }: { defaultPlan?: string }) {
                                                             } else {
                                                                 start = parse(selectedTime, "HH:mm", selectedDate || new Date())
                                                             }
-                                                            const end = addMinutes(start, selectedServiceDetails?.duration_minutes || 120)
+                                                            const fallbackDuration = (selectedService && (DIRECT_PLAN_DEFAULTS as Record<string, any>)[selectedService]?.duration_minutes)
+                                                                || (plan && (DIRECT_PLAN_DEFAULTS as Record<string, any>)[plan]?.duration_minutes)
+                                                                || 120
+                                                            const end = addMinutes(start, selectedServiceDetails?.duration_minutes || fallbackDuration)
                                                             return `${format(start, "h:mm a")} - ${format(end, "h:mm a")}`
                                                         })()}
                                                     </div>

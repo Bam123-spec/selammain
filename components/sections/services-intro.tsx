@@ -1,11 +1,14 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
 import Image from "next/image"
 import { motion } from "framer-motion"
 import { PremiumCarAnimation } from "@/components/ui/premium-car-animation"
 import { ServicePriceDisplay } from "@/components/shared/service-price-display"
+import { useRouter } from "next/navigation"
+import { Loader2 } from "lucide-react"
 
 const containerVariants = {
     hidden: { opacity: 0 },
@@ -72,6 +75,83 @@ const CardContent = ({ service }: { service: any }) => (
 )
 
 export function ServicesIntro() {
+    const router = useRouter()
+    const [navigatingTo, setNavigatingTo] = useState<string | null>(null)
+
+    const services = [
+        {
+            title: "Driver's Education",
+            description: "Complete 36-hour MVA-certified course for new drivers. Includes classroom and behind-the-wheel training.",
+            price: "Starting at $390",
+            type: "class",
+            identifier: "DE",
+            prefix: "Starting at ",
+            priceFallback: "390",
+            image: "/drivers-ed-home.jpg",
+            link: "/services/drivers-education",
+            enrollLink: "/services/drivers-education-packages"
+        },
+        {
+            title: "Driving Practice",
+            description: "Private behind-the-wheel training to master your driving skills. Perfect for nervous drivers.",
+            price: "Starting at $65",
+            type: "service",
+            identifier: "refresher",
+            prefix: "Starting at ",
+            priceFallback: "65",
+            image: "/road-practice.jpg",
+            link: "/services/driving-practice",
+            enrollLink: "/services/driving-practice-packages"
+        },
+        {
+            title: "Driving Improvement Program",
+            description: "MVA-approved Driver Improvement Program (DIP) for point reduction and court requirements.",
+            price: "$120",
+            type: "class",
+            identifier: "DIP",
+            prefix: "",
+            priceFallback: "120",
+            image: "/person-driving-car-instructor-lesson.jpg",
+            link: "/services/dip",
+            enrollLink: "/services/dip"
+        },
+        {
+            title: "3-Hour Roadway Safety (RSEP)",
+            description: "Required alcohol and drug education program for international license conversion.",
+            price: "$100",
+            type: "class",
+            identifier: "RSEP",
+            prefix: "",
+            priceFallback: "100",
+            image: "/icon-traffic-light-sign.png",
+            link: "/services/rsep",
+            enrollLink: "/services/rsep-packages"
+        },
+        {
+            title: "Road Test Service",
+            description: "Use our car and instructor for your MVA road test. Includes warm-up lesson and transportation.",
+            price: "Starting at $120",
+            type: "service",
+            identifier: "road-test-escort",
+            prefix: "Starting at ",
+            priceFallback: "120",
+            image: "/bas-peperzak-tyhpK_QelPo-unsplash.jpg",
+            link: "/services/road-test",
+            enrollLink: "/services/road-test-packages"
+        }
+    ] as const
+
+    useEffect(() => {
+        for (const service of services) {
+            router.prefetch(service.enrollLink)
+            router.prefetch(service.link)
+        }
+    }, [router])
+
+    const handleEnroll = (href: string) => {
+        setNavigatingTo(href)
+        router.push(href)
+    }
 
     return (
         <section id="services" className="relative z-20 mt-0 lg:-mt-40 pb-16 bg-white rounded-none overflow-hidden shadow-none lg:shadow-none">
@@ -127,68 +207,7 @@ export function ServicesIntro() {
                     animate="visible"
                     className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6"
                 >
-                    {[
-                        {
-                            title: "Driver's Education",
-                            description: "Complete 36-hour MVA-certified course for new drivers. Includes classroom and behind-the-wheel training.",
-                            price: "Starting at $390",
-                            type: "class",
-                            identifier: "DE",
-                            prefix: "Starting at ",
-                            priceFallback: "390",
-                            image: "/drivers-ed-home.jpg",
-                            link: "/services/drivers-education",
-                            enrollLink: "/services/drivers-education-packages"
-                        },
-                        {
-                            title: "Driving Practice",
-                            description: "Private behind-the-wheel training to master your driving skills. Perfect for nervous drivers.",
-                            price: "Starting at $65",
-                            type: "service",
-                            identifier: "refresher",
-                            prefix: "Starting at ",
-                            priceFallback: "65",
-                            image: "/road-practice.jpg",
-                            link: "/services/driving-practice",
-                            enrollLink: "/services/driving-practice-packages"
-                        },
-                        {
-                            title: "Driving Improvement Program",
-                            description: "MVA-approved Driver Improvement Program (DIP) for point reduction and court requirements.",
-                            price: "$120",
-                            type: "class",
-                            identifier: "DIP",
-                            prefix: "",
-                            priceFallback: "120",
-                            image: "/person-driving-car-instructor-lesson.jpg",
-                            link: "/services/dip",
-                            enrollLink: "/services/dip"
-                        },
-                        {
-                            title: "3-Hour Roadway Safety (RSEP)",
-                            description: "Required alcohol and drug education program for international license conversion.",
-                            price: "$100",
-                            type: "class",
-                            identifier: "RSEP",
-                            prefix: "",
-                            priceFallback: "100",
-                            image: "/icon-traffic-light-sign.png",
-                            link: "/services/rsep",
-                            enrollLink: "/services/rsep-packages"
-                        },
-                        {
-                            title: "Road Test Service",
-                            description: "Use our car and instructor for your MVA road test. Includes warm-up lesson and transportation.",
-                            price: "Starting at $120",
-                            type: "service",
-                            identifier: "road-test-escort",
-                            prefix: "Starting at ",
-                            priceFallback: "120",
-                            image: "/bas-peperzak-tyhpK_QelPo-unsplash.jpg",
-                            link: "/services/road-test",
-                            enrollLink: "/services/road-test-packages"
-                        }
-                    ].map((service, index) => {
+                    {services.map((service, index) => {
                         return (
                             <motion.div
                                 key={index}
@@ -231,8 +250,18 @@ export function ServicesIntro() {
                                     </p>
 
                                     <div className="flex flex-col gap-3 mt-auto">
-                                        <Button className="w-full bg-[#FDB813] hover:bg-[#e5a700] text-black font-black text-sm uppercase tracking-widest transform transition-all duration-300 hover:scale-[1.02] shadow-md rounded-xl" asChild>
-                                            <Link href={service.enrollLink}>ENROLL</Link>
+                                        <Button
+                                            className="w-full bg-[#FDB813] hover:bg-[#e5a700] text-black font-black text-sm uppercase tracking-widest transform transition-all duration-300 hover:scale-[1.02] shadow-md rounded-xl"
+                                            onMouseEnter={() => router.prefetch(service.enrollLink)}
+                                            onFocus={() => router.prefetch(service.enrollLink)}
+                                            onClick={() => handleEnroll(service.enrollLink)}
+                                            disabled={navigatingTo === service.enrollLink}
+                                        >
+                                            {navigatingTo === service.enrollLink ? (
+                                                <Loader2 className="h-4 w-4 animate-spin" />
+                                            ) : (
+                                                "ENROLL"
+                                            )}
                                         </Button>
                                         <Button variant="outline" className="w-full border-2 border-gray-100 text-gray-900 hover:bg-gray-50 hover:border-gray-200 font-bold text-sm uppercase tracking-widest rounded-xl" asChild>
                                             <Link href={service.link}>LEARN MORE</Link>

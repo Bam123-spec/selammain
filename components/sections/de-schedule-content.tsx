@@ -142,9 +142,14 @@ export function DEScheduleContent({
 
 
     const handleBook = async (session: ClassSession) => {
-        // For Drivers Ed (DE), keep the old intake flow
+        // Driver's Ed now goes directly to the embedded checkout page.
         if (classType === 'DE') {
-            router.push(`/enroll/${session.id}/intake`)
+            const params = new URLSearchParams({
+                classId: session.id,
+            })
+            if (classification) params.set("classification", classification.toLowerCase())
+            if (location) params.set("location", location)
+            router.push(`/services/drivers-education-packages/checkout?${params.toString()}`)
             return
         }
 
