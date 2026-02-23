@@ -23,7 +23,6 @@ const REQUIRE_STUDENT_DETAILS_TYPES = new Set([
     "DRIVING_PRACTICE_PACKAGE",
     "ROAD_TEST_PACKAGE",
     "RSEP_DIP_ENROLLMENT",
-    "CLASS_ENROLLMENT",
 ]);
 
 function errorResponse(status: number, code: string, message: string) {

@@ -6,6 +6,7 @@ import { format } from "date-fns/format"
 import { parseISO } from "date-fns/parseISO"
 import { differenceInWeeks } from "date-fns/differenceInWeeks"
 import { Loader2, ChevronRight, AlertCircle } from "lucide-react"
+import { useRouter } from "next/navigation"
 
 interface ClassSession {
     id: string
@@ -31,6 +32,7 @@ export function ClassBookingList({
     location?: string | null,
     classification?: string
 }) {
+    const router = useRouter()
     const [loading, setLoading] = useState(false)
     const [limit, setLimit] = useState(4)
     const [bookingLoading, setBookingLoading] = useState<string | null>(null)
@@ -81,8 +83,19 @@ export function ClassBookingList({
     }
 
     const handleBook = async (session: ClassSession) => {
-        // Driver's Ed now requires student details before payment; route through intake first.
-        window.location.href = `/enroll/${session.id}/intake`
+        setBookingLoading(session.id)
+        const params = new URLSearchParams({
+            classId: session.id,
+        })
+
+        if (classification) {
+            params.set("classification", classification)
+        }
+        if (location) {
+            params.set("location", location)
+        }
+
+        router.push(`/services/drivers-education-packages/checkout?${params.toString()}`)
     }
 
     return (
