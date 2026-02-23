@@ -1,6 +1,5 @@
 import { createClient } from "@/lib/supabase/server"
 import { ClassBookingList } from "@/components/sections/class-booking-list"
-import { getServiceBySlug } from "@/app/actions/services"
 
 export const runtime = "edge"
 export const dynamic = "force-dynamic"
@@ -10,8 +9,8 @@ export default async function DriversEducationSchedulePage({
 }: {
     searchParams: Promise<{ [key: string]: string | string[] | undefined }>
 }) {
-    const supabase = await createClient()
     const resolvedParams = await searchParams
+    const supabase = await createClient()
     const classification = typeof resolvedParams.classification === 'string'
         ? resolvedParams.classification.toLowerCase()
         : 'morning'
@@ -19,14 +18,21 @@ export default async function DriversEducationSchedulePage({
     // Fetch classes from Supabase
     // We fetch all active/upcoming classes and filter by time dynamically
     // since 'type' column might not exist.
-    const { data: allClasses, error } = await supabase
-        .from('classes')
-        .select('*')
-        .gte('end_date', new Date().toISOString()) // Only future classes
-        .order('start_date', { ascending: true })
+    let allClasses: any[] = []
+    try {
+        const { data, error } = await supabase
+            .from('classes')
+            .select('*')
+            .gte('end_date', new Date().toISOString()) // Only future classes
+            .order('start_date', { ascending: true })
 
-    if (error) {
-        console.error("Error fetching classes:", error)
+        if (error) {
+            console.error("Error fetching classes:", error)
+        } else {
+            allClasses = data || []
+        }
+    } catch (error) {
+        console.error("Unexpected error fetching classes:", error)
     }
 
     // Fetch the "Service" price (to override class price if needed for instant updates)
@@ -36,8 +42,22 @@ export default async function DriversEducationSchedulePage({
     if (classification === 'evening') serviceSlug = 'drivers-ed-evening'
     if (classification === 'weekend') serviceSlug = 'drivers-ed-weekend'
 
-    const serviceData = await getServiceBySlug(serviceSlug)
-    const basePrice = serviceData?.price || 390
+    let basePrice = 390
+    try {
+        const { data: serviceData, error: serviceError } = await supabase
+            .from('services')
+            .select('price')
+            .eq('slug', serviceSlug)
+            .maybeSingle()
+
+        if (serviceError) {
+            console.error(`Error fetching service ${serviceSlug}:`, serviceError)
+        } else if (serviceData?.price) {
+            basePrice = Number(serviceData.price) || 390
+        }
+    } catch (error) {
+        console.error(`Unexpected error fetching service ${serviceSlug}:`, error)
+    }
 
     // Get location from search params
     const location = typeof resolvedParams.location === 'string'
@@ -45,7 +65,7 @@ export default async function DriversEducationSchedulePage({
         : null
 
     // Filter and Enrich Data
-    const classes = (allClasses || []).filter(c => {
+    const classes = allClasses.filter(c => {
         const startTime = c.daily_start_time || ""
         const name = (c.name || "").toLowerCase()
 
