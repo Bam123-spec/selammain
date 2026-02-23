@@ -66,8 +66,8 @@ export default async function DriversEducationSchedulePage({
 
     // Filter and Enrich Data
     const classes = allClasses.filter(c => {
-        const startTime = c.daily_start_time || ""
-        const name = (c.name || "").toLowerCase()
+        const startTime = typeof c?.daily_start_time === 'string' ? c.daily_start_time : ""
+        const name = typeof c?.name === 'string' ? c.name.toLowerCase() : ""
 
         if (classification === 'morning') {
             return startTime.startsWith('09') || name.includes('morning')

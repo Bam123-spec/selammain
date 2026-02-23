@@ -224,7 +224,7 @@ export default function ImprovementProgramPackagesPage() {
                                                 {isBethesda ? `Bethesda ${session.name}` : session.name}
                                             </h4>
                                             <div className="text-gray-500 font-light mb-4 text-sm">
-                                                4-hour session @ $100.00
+                                                4-hour session @ $120.00
                                             </div>
 
                                             <p className="text-gray-600 text-sm leading-relaxed mb-4">

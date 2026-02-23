@@ -155,11 +155,11 @@ export function ServicesIntro() {
                         {
                             title: "Driving Improvement Program",
                             description: "MVA-approved Driver Improvement Program (DIP) for point reduction and court requirements.",
-                            price: "$100",
+                            price: "$120",
                             type: "class",
                             identifier: "DIP",
                             prefix: "",
-                            priceFallback: "100",
+                            priceFallback: "120",
                             image: "/person-driving-car-instructor-lesson.jpg",
                             link: "/services/dip",
                             enrollLink: "/services/dip"
@@ -208,7 +208,7 @@ export function ServicesIntro() {
 
                                     {/* Price Badge */}
                                     <div className="absolute top-4 right-4 bg-[#FDB813] text-black font-black text-xs py-1 px-3 rounded-full uppercase tracking-wider shadow-md">
-                                        {service.identifier === "refresher" ? (
+                                        {service.identifier === "refresher" || service.identifier === "DIP" || service.identifier === "DE" ? (
                                             <span>{service.price}</span>
                                         ) : (
                                             <ServicePriceDisplay

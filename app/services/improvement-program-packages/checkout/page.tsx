@@ -108,6 +108,11 @@ export default function DipEmbeddedCheckoutPage() {
                             <h1 className="text-xl font-black text-gray-900 leading-tight">{className}</h1>
                         </div>
 
+                        <div className="rounded-md border border-[#FDB813]/30 bg-[#FFF7D6] px-3 py-2">
+                            <p className="text-[11px] font-bold uppercase tracking-wider text-gray-500">Price</p>
+                            <p className="text-lg font-black text-gray-900">$120.00</p>
+                        </div>
+
                         <div className="rounded-md border border-gray-200 bg-gray-50 p-3 space-y-1.5">
                             <p className="text-[11px] font-bold uppercase tracking-wider text-gray-500">Date</p>
                             <p className="text-sm font-semibold text-gray-900">{classDate || "TBD"}</p>

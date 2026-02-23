@@ -59,10 +59,25 @@ export function ClassBookingList({
     }
 
     const getWeeksAway = (dateStr: string) => {
-        const weeks = differenceInWeeks(parseISO(dateStr), new Date())
-        if (weeks <= 0) return "next week"
-        if (weeks === 1) return "in 1 week"
-        return `in ${weeks} weeks`
+        try {
+            const weeks = differenceInWeeks(parseISO(dateStr), new Date())
+            if (weeks <= 0) return "next week"
+            if (weeks === 1) return "in 1 week"
+            return `in ${weeks} weeks`
+        } catch (e) {
+            console.error("Error calculating weeks away:", dateStr, e)
+            return "coming soon"
+        }
+    }
+
+    const formatDisplayDate = (dateStr?: string) => {
+        try {
+            if (!dateStr) return "Date TBA"
+            return format(parseISO(dateStr), 'EEEE, MMMM do, yyyy')
+        } catch (e) {
+            console.error("Error formatting class date:", dateStr, e)
+            return "Date TBA"
+        }
     }
 
     const handleBook = async (session: ClassSession) => {
@@ -117,12 +132,12 @@ export function ClassBookingList({
 
                                 return (
                                     <div key={session.id} className="border-b pb-8 last:border-0">
-                                        <div className="bg-gray-100 p-3 flex justify-between items-center font-medium text-gray-700 mb-6">
-                                            <span>{format(parseISO(session.start_date || new Date().toISOString()), 'EEEE, MMMM do, yyyy')}</span>
+                                    <div className="bg-gray-100 p-3 flex justify-between items-center font-medium text-gray-700 mb-6">
+                                            <span>{formatDisplayDate(session.start_date)}</span>
                                             <span className="uppercase text-xs tracking-wider font-bold text-gray-500">
                                                 {session.start_date ? getWeeksAway(session.start_date) : "Coming Soon"}
                                             </span>
-                                        </div>
+                                    </div>
 
                                         <div className="flex flex-col md:flex-row gap-6">
                                             <div className="flex-grow">

@@ -1,6 +1,5 @@
 "use client"
 
-import { ServicePriceDisplay } from "@/components/shared/service-price-display"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
 import { RefreshCw, FileCheck, Gavel, Check } from "lucide-react"
@@ -27,12 +26,7 @@ export default function ImprovementProgramPage() {
                         Program (DIP)
                     </h1>
                     <div className="flex flex-col items-center justify-center gap-2 mb-8">
-                        <ServicePriceDisplay
-                            type="class"
-                            identifier="DIP"
-                            fallbackPrice="100"
-                            className="text-6xl font-black text-[#FDB813] tracking-tight"
-                        />
+                        <div className="text-6xl font-black text-[#FDB813] tracking-tight">$120</div>
                         <p className="text-gray-500 font-medium text-lg">Includes certificate + all required course materials.</p>
                     </div>
                     <Button asChild size="lg" className="rounded-none px-12 py-8 text-xl font-bold bg-black text-white hover:bg-gray-800 shadow-xl hover:shadow-2xl hover:-translate-y-1 transition-all duration-300 w-full md:w-auto">

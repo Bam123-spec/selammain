@@ -301,7 +301,7 @@ export function DEScheduleContent({
                                                 {isBethesda ? `Bethesda ${session.name}` : session.name}
                                             </h4>
                                             <div className="text-gray-500 font-light mb-4 text-sm">
-                                                Session @ ${session.price || "0"}.00
+                                                {classType === 'DIP' ? '4-hour session @ $120.00' : `Session @ $${session.price || "0"}.00`}
                                             </div>
 
                                             <p className="text-gray-600 text-sm leading-relaxed mb-4">
