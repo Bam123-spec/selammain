@@ -1,0 +1,4 @@
+name = "selam-driving-school"
+compatibility_date = "2025-01-28"
+compatibility_flags = ["nodejs_compat"]
+pages_build_output_dir = ".vercel/output/static"
