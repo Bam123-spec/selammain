@@ -147,7 +147,7 @@ export function ServicesIntro() {
                             type: "service",
                             identifier: "refresher",
                             prefix: "Starting at ",
-                            priceFallback: "70",
+                            priceFallback: "65",
                             image: "/road-practice.jpg",
                             link: "/services/driving-practice",
                             enrollLink: "/services/driving-practice-packages"
@@ -208,12 +208,16 @@ export function ServicesIntro() {
 
                                     {/* Price Badge */}
                                     <div className="absolute top-4 right-4 bg-[#FDB813] text-black font-black text-xs py-1 px-3 rounded-full uppercase tracking-wider shadow-md">
-                                        <ServicePriceDisplay
-                                            type={service.type as any}
-                                            identifier={service.identifier}
-                                            fallbackPrice={service.priceFallback}
-                                            prefix={service.prefix}
-                                        />
+                                        {service.identifier === "refresher" ? (
+                                            <span>{service.price}</span>
+                                        ) : (
+                                            <ServicePriceDisplay
+                                                type={service.type as any}
+                                                identifier={service.identifier}
+                                                fallbackPrice={service.priceFallback}
+                                                prefix={service.prefix}
+                                            />
+                                        )}
                                     </div>
                                 </div>
 
