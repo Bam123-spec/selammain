@@ -88,6 +88,12 @@ export function SchedulingForm({ defaultPlan }: { defaultPlan?: string }) {
         () => !!plan && (DIRECT_EMBEDDED_PAID_PLANS as readonly string[]).includes(plan),
         [plan]
     )
+    const directCheckoutPath = React.useMemo(() => {
+        if (!plan) return null
+        if (plan.startsWith("road-test")) return "/services/road-test-packages/checkout"
+        if (plan.startsWith("driving-practice")) return "/services/driving-practice-packages/checkout"
+        return null
+    }, [plan])
 
     // Steps: 0 = Service Selection, 1 = Date/Time, 2 = Details, 3 = Success
     const [step, setStep] = React.useState(plan ? 1 : 0)
@@ -284,6 +290,12 @@ export function SchedulingForm({ defaultPlan }: { defaultPlan?: string }) {
         }
         checkUser()
     }, [form])
+
+    React.useEffect(() => {
+        if (directCheckoutPath) {
+            router.prefetch(directCheckoutPath)
+        }
+    }, [directCheckoutPath, router])
 
     async function onSubmit(values: z.infer<typeof formSchema>) {
         setIsLoading(true)
@@ -726,6 +738,7 @@ export function SchedulingForm({ defaultPlan }: { defaultPlan?: string }) {
                                         )}
 
                                         <Button
+                                            type="button"
                                             onClick={nextStep}
                                             disabled={!selectedDate || !selectedTime || isLoading}
                                             className="w-full bg-black hover:bg-gray-800 text-white font-bold h-14 rounded-xl text-lg transition-all shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
