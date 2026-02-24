@@ -11,7 +11,10 @@ export interface EmailPayload {
 
 export async function sendBrevoEmail(payload: EmailPayload) {
     const apiKey = process.env.BREVO_API_KEY;
-    const senderEmail = process.env.NEXT_PUBLIC_SENDER_EMAIL || process.env.BREVO_SENDER_EMAIL || 'no-reply@portifol.com';
+    const senderEmail =
+        process.env.NEXT_PUBLIC_SENDER_EMAIL ||
+        process.env.BREVO_SENDER_EMAIL ||
+        'selamdrivingschool@gmail.com';
     const senderName = process.env.BREVO_SENDER_NAME || "Selam Driving School";
 
     if (!apiKey) {

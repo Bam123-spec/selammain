@@ -46,7 +46,7 @@ async function ensureStudentIdentity(userId: string, params: {
     phone?: string;
 }) {
     const email = params.email.trim().toLowerCase();
-    const fullName = params.fullName.trim();
+    const fullName = normalizeStudentDisplayName(params.fullName, email);
     const phone = params.phone?.trim() || null;
     if (!email || !fullName) return;
 
@@ -74,11 +74,15 @@ async function ensureStudentIdentity(userId: string, params: {
             }
         } else {
             const currentName = typeof (profileRow as any).full_name === 'string' ? (profileRow as any).full_name.trim() : '';
-            const shouldReplaceName = !currentName || currentName.toLowerCase() === 'guest';
+            const shouldReplaceName =
+                !!fullName &&
+                (!currentName ||
+                    currentName.toLowerCase() === 'guest' ||
+                    currentName !== fullName);
             const profileUpdate: Record<string, unknown> = {};
             if (shouldReplaceName) profileUpdate.full_name = fullName;
             if (!profileRow.email || String(profileRow.email).trim().toLowerCase() !== email) profileUpdate.email = email;
-            if (phone && !profileRow.phone) profileUpdate.phone = phone;
+            if (phone && String(profileRow.phone || '').trim() !== phone) profileUpdate.phone = phone;
             if (!(profileRow as any).role) profileUpdate.role = 'student';
 
             if (Object.keys(profileUpdate).length > 0) {
@@ -265,7 +269,10 @@ export async function POST(req: Request) {
                 const { data: newUser, error: createError } = await supabaseAdmin.auth.admin.createUser({
                     email: data.studentEmail,
                     email_confirm: true,
-                    user_metadata: { full_name: data.studentName, name: data.studentName.split(' ')[0] }
+                    user_metadata: {
+                        full_name: studentDisplayName,
+                        name: studentDisplayName.split(' ')[0]
+                    }
                 });
                 if (newUser?.user) {
                     userId = newUser.user.id;
@@ -602,6 +609,12 @@ export async function POST(req: Request) {
             const stripeEnteredName = session.custom_fields?.find((f: any) => f.key === 'student_name')?.text?.value || '';
             const rawName = stripeEnteredName || meta.student_name || customer?.name || '';
             const phone = customer?.phone || meta.student_phone;
+            const serviceSlug = typeof meta.service_slug === 'string' ? meta.service_slug : '';
+            const inferredClassType =
+                meta.class_type ||
+                (serviceSlug.startsWith('drivers-ed-') ? 'DE' : undefined) ||
+                (serviceSlug === 'dip' ? 'DIP' : undefined) ||
+                (serviceSlug === 'rsep' ? 'RSEP' : undefined);
 
             if (!email) {
                 console.error('No email in session');
@@ -617,7 +630,7 @@ export async function POST(req: Request) {
                 classDate: meta.class_date,
                 classTime: meta.class_time,
                 classEndDate: meta.class_end_date,
-                classType: meta.class_type,
+                classType: inferredClassType,
                 plan_slug: meta.plan_slug,
                 instructorId: meta.instructor_id,
                 stripeSessionId: session.id,
@@ -630,7 +643,7 @@ export async function POST(req: Request) {
             });
 
         } catch (error: any) {
-            console.error('Checkout processing error');
+            console.error('Checkout processing error:', error);
             return new NextResponse('Webhook processing error', { status: 500 });
         }
     }
