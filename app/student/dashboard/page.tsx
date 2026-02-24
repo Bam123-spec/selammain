@@ -16,7 +16,8 @@ import {
     AlertCircle,
     MapPin,
     Shield,
-    Compass
+    Compass,
+    X
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
@@ -51,7 +52,8 @@ function DashboardContent() {
     const router = useRouter()
     const searchParams = useSearchParams()
     const { student, loading: studentLoading } = useCurrentStudent()
-    const { enrollments, upcomingBtw, tenHourSessions, latestTenHourSession, drivingSessions, btwAllocation, loading: dataLoading } = useStudentDashboardData()
+    const { enrollments, upcomingBtw, tenHourSessions, latestTenHourSession, drivingSessions, btwAllocation, loading: dataLoading, refreshData } = useStudentDashboardData()
+    const [cancellingSessionId, setCancellingSessionId] = useState<string | null>(null)
 
     const isSignupSuccess = searchParams.get('signup') === 'success'
 
@@ -59,6 +61,43 @@ function DashboardContent() {
         await supabase.auth.signOut()
         toast.success("Logged out successfully")
         router.push("/")
+    }
+
+    const handleCancelDrivingSession = async (sessionId: string) => {
+        const confirmed = window.confirm("Are you sure you want to cancel this booking?")
+        if (!confirmed) return
+
+        setCancellingSessionId(sessionId)
+        try {
+            const { data: { session } } = await supabase.auth.getSession()
+            const token = session?.access_token
+            if (!token) {
+                toast.error("Please sign in again to cancel this booking.")
+                router.push("/student/login?next=/student/dashboard")
+                return
+            }
+
+            const response = await fetch("/api/cancel-driving-session", {
+                method: "DELETE",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${token}`,
+                },
+                body: JSON.stringify({ sessionId }),
+            })
+            const payload = await response.json().catch(() => ({}))
+
+            if (!response.ok) {
+                throw new Error(payload?.error || "Failed to cancel booking.")
+            }
+
+            toast.success(payload?.refunded ? "Booking cancelled and refunded." : "Booking cancelled.")
+            await refreshData()
+        } catch (error: any) {
+            toast.error(error?.message || "Failed to cancel booking.")
+        } finally {
+            setCancellingSessionId(null)
+        }
     }
 
     // --- Prioritization Logic (New Request) ---
@@ -553,8 +592,20 @@ function DashboardContent() {
                                                         {session.status}
                                                     </Badge>
                                                     {session.status !== 'cancelled' && new Date(session.start_time) > new Date() && (
-                                                        <Button variant="outline" size="sm" className="text-[10px] font-black uppercase tracking-widest border-gray-200 hover:border-blue-600 hover:text-blue-600" asChild>
-                                                            <Link href={`/student/session-reschedule?session_id=${session.id}`}>Reschedule</Link>
+                                                        <Button
+                                                            type="button"
+                                                            variant="outline"
+                                                            size="sm"
+                                                            onClick={() => handleCancelDrivingSession(session.id)}
+                                                            disabled={cancellingSessionId === session.id}
+                                                            className="text-[10px] font-black uppercase tracking-widest border-red-200 text-red-500 hover:border-red-300 hover:text-red-600 hover:bg-red-50"
+                                                        >
+                                                            {cancellingSessionId === session.id ? (
+                                                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                                            ) : (
+                                                                <X className="w-3.5 h-3.5" />
+                                                            )}
+                                                            Cancel
                                                         </Button>
                                                     )}
                                                 </div>

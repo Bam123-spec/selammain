@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 import { Student, Enrollment, BtwSession, StudentBtwAllocation, SessionAttendance, TenHourSession } from '@/types/student-portal'
 import { toast } from 'sonner'
@@ -56,119 +56,128 @@ export function useStudentDashboardData() {
     const [btwAllocation, setBtwAllocation] = useState<StudentBtwAllocation | null>(null)
     const [loading, setLoading] = useState(true)
 
-    useEffect(() => {
-        const fetchData = async () => {
-            try {
-                const { data: { user } } = await supabase.auth.getUser()
-                if (!user) return
+    const refreshData = useCallback(async () => {
+        setLoading(true)
+        try {
+            const { data: { user } } = await supabase.auth.getUser()
+            if (!user) {
+                setEnrollments([])
+                setUpcomingBtw([])
+                setTenHourSessions([])
+                setLatestTenHourSession(null)
+                setDrivingSessions([])
+                setBtwAllocation(null)
+                return
+            }
 
-                const [
-                    enrollmentResponse,
-                    btwResponse,
-                    drivingResponse,
-                    allocationResponse,
-                    tenHourResponse,
-                    latestTenHourResponse
-                ] = await Promise.all([
-                    // 1. Fetch Enrollments
-                    supabase
-                        .from('enrollments')
-                        .select(`
+            const [
+                enrollmentResponse,
+                btwResponse,
+                drivingResponse,
+                allocationResponse,
+                tenHourResponse,
+                latestTenHourResponse
+            ] = await Promise.all([
+                // 1. Fetch Enrollments
+                supabase
+                    .from('enrollments')
+                    .select(`
                             *,
                             classes:class_id (*),
                             courses:course_id (*)
                         `)
-                        .or(`user_id.eq.${user.id},student_id.eq.${user.id},email.eq.${user.email?.toLowerCase()}`)
-                        .in('status', ['active', 'enrolled', 'pending_payment', 'completed']),
+                    .or(`user_id.eq.${user.id},student_id.eq.${user.id},email.eq.${user.email?.toLowerCase()}`)
+                    .in('status', ['active', 'enrolled', 'pending_payment', 'completed']),
 
-                    // 2. Fetch Upcoming BTW Sessions (from correct table)
-                    supabase
-                        .from('behind_the_wheel_sessions')
-                        .select(`*`)
-                        .eq('student_id', user.id)
-                        .gte('ends_at', new Date().toISOString())
-                        .order('starts_at', { ascending: true })
-                        .limit(5),
+                // 2. Fetch Upcoming BTW Sessions (from correct table)
+                supabase
+                    .from('behind_the_wheel_sessions')
+                    .select(`*`)
+                    .eq('student_id', user.id)
+                    .gte('ends_at', new Date().toISOString())
+                    .order('starts_at', { ascending: true })
+                    .limit(5),
 
-                    // 3. Fetch Driving Practice & Road Test Sessions
-                    supabase
-                        .from('driving_sessions')
-                        .select(`*, instructors(*)`)
-                        .eq('student_id', user.id)
-                        .gte('start_time', new Date().toISOString())
-                        .order('start_time', { ascending: true })
-                        .limit(10),
+                // 3. Fetch Driving Practice & Road Test Sessions
+                supabase
+                    .from('driving_sessions')
+                    .select(`*, instructors(*)`)
+                    .eq('student_id', user.id)
+                    .gte('start_time', new Date().toISOString())
+                    .order('start_time', { ascending: true })
+                    .limit(10),
 
-                    // 4. Fetch Allocation
-                    supabase
-                        .from('student_btw_allocations')
-                        .select(`*, behind_the_wheel_packages(*)`)
-                        .eq('student_id', user.id)
-                        .maybeSingle(),
+                // 4. Fetch Allocation
+                supabase
+                    .from('student_btw_allocations')
+                    .select(`*, behind_the_wheel_packages(*)`)
+                    .eq('student_id', user.id)
+                    .maybeSingle(),
 
-                    // 5. Fetch 10-Hour Package Sessions
-                    supabase
-                        .from('ten_hour_package_sessions')
-                        .select(`*, instructors(*)`)
-                        .eq('student_id', user.id)
-                        .gte('end_time', new Date().toISOString())
-                        .order('start_time', { ascending: true })
-                        .limit(5),
+                // 5. Fetch 10-Hour Package Sessions
+                supabase
+                    .from('ten_hour_package_sessions')
+                    .select(`*, instructors(*)`)
+                    .eq('student_id', user.id)
+                    .gte('end_time', new Date().toISOString())
+                    .order('start_time', { ascending: true })
+                    .limit(5),
 
-                    // 6. Fetch most recent 10-Hour Package Session (for completion timing)
-                    supabase
-                        .from('ten_hour_package_sessions')
-                        .select(`*, instructors(*)`)
-                        .eq('student_id', user.id)
-                        .order('start_time', { ascending: false })
-                        .limit(1)
-                ])
+                // 6. Fetch most recent 10-Hour Package Session (for completion timing)
+                supabase
+                    .from('ten_hour_package_sessions')
+                    .select(`*, instructors(*)`)
+                    .eq('student_id', user.id)
+                    .order('start_time', { ascending: false })
+                    .limit(1)
+            ])
 
-                // Log any errors with full details
-                if (enrollmentResponse.error) {
-                    console.error('Dashboard Error (enrollments):', enrollmentResponse.error)
-                    console.error('Full error details:', JSON.stringify(enrollmentResponse.error, null, 2))
-                }
-                if (btwResponse.error) {
-                    console.error('Dashboard Error (btw):', btwResponse.error)
-                    console.error('Full BTW error details:', JSON.stringify(btwResponse.error, null, 2))
-                    console.error('Error message:', btwResponse.error.message)
-                    console.error('Error code:', btwResponse.error.code)
-                }
-
-                if (enrollmentResponse.data) setEnrollments(enrollmentResponse.data)
-                if (btwResponse.data) {
-                    // Map starts_at/ends_at to start_time/end_time for compatibility
-                    const mappedBtw = btwResponse.data.map(session => ({
-                        ...session,
-                        start_time: session.starts_at,
-                        end_time: session.ends_at,
-                        // Ensure service_type is set for compatibility if missing
-                        service_type: session.session_type === 'BTW' ? 'Behind the Wheel' : (session.session_type || 'Behind the Wheel')
-                    }))
-                    setUpcomingBtw(mappedBtw)
-                }
-                if (drivingResponse.data) setDrivingSessions(drivingResponse.data)
-                if (allocationResponse.data) setBtwAllocation(allocationResponse.data)
-                if (tenHourResponse.data) setTenHourSessions(tenHourResponse.data)
-                if (latestTenHourResponse.data?.length) {
-                    setLatestTenHourSession(latestTenHourResponse.data[0])
-                } else {
-                    setLatestTenHourSession(null)
-                }
-
-            } catch (error) {
-                console.error('Error fetching dashboard data:', error)
-                toast.error('Failed to load dashboard data')
-            } finally {
-                setLoading(false)
+            // Log any errors with full details
+            if (enrollmentResponse.error) {
+                console.error('Dashboard Error (enrollments):', enrollmentResponse.error)
+                console.error('Full error details:', JSON.stringify(enrollmentResponse.error, null, 2))
             }
-        }
+            if (btwResponse.error) {
+                console.error('Dashboard Error (btw):', btwResponse.error)
+                console.error('Full BTW error details:', JSON.stringify(btwResponse.error, null, 2))
+                console.error('Error message:', btwResponse.error.message)
+                console.error('Error code:', btwResponse.error.code)
+            }
 
-        fetchData()
+            if (enrollmentResponse.data) setEnrollments(enrollmentResponse.data)
+            if (btwResponse.data) {
+                // Map starts_at/ends_at to start_time/end_time for compatibility
+                const mappedBtw = btwResponse.data.map(session => ({
+                    ...session,
+                    start_time: session.starts_at,
+                    end_time: session.ends_at,
+                    // Ensure service_type is set for compatibility if missing
+                    service_type: session.session_type === 'BTW' ? 'Behind the Wheel' : (session.session_type || 'Behind the Wheel')
+                }))
+                setUpcomingBtw(mappedBtw)
+            }
+            if (drivingResponse.data) setDrivingSessions(drivingResponse.data)
+            if (allocationResponse.data) setBtwAllocation(allocationResponse.data)
+            if (tenHourResponse.data) setTenHourSessions(tenHourResponse.data)
+            if (latestTenHourResponse.data?.length) {
+                setLatestTenHourSession(latestTenHourResponse.data[0])
+            } else {
+                setLatestTenHourSession(null)
+            }
+
+        } catch (error) {
+            console.error('Error fetching dashboard data:', error)
+            toast.error('Failed to load dashboard data')
+        } finally {
+            setLoading(false)
+        }
     }, [])
 
-    return { enrollments, upcomingBtw, tenHourSessions, latestTenHourSession, drivingSessions, btwAllocation, loading }
+    useEffect(() => {
+        refreshData()
+    }, [refreshData])
+
+    return { enrollments, upcomingBtw, tenHourSessions, latestTenHourSession, drivingSessions, btwAllocation, loading, refreshData }
 }
 
 export function useDriverEdProgress(enrollmentId: string) {
