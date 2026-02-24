@@ -143,27 +143,30 @@ async function lookupUserIdByEmail(email: string) {
     return null;
 }
 
-async function buildManageBookingUrl(email: string) {
-    const siteOrigin = (process.env.NEXT_PUBLIC_APP_URL || "https://selamdrivingschool.com").replace(/\/$/, "");
+async function buildManageBookingUrl(email: string, options?: { isFirstTimeUser?: boolean }) {
+    const siteOrigin = (process.env.NEXT_PUBLIC_APP_URL || "https://www.selamdrivingschool.com").replace(/\/$/, "");
     const fallbackUrl = `${siteOrigin}/student/login?next=/student/dashboard`;
+    const isFirstTimeUser = !!options?.isFirstTimeUser;
 
     try {
         const { data, error } = await supabaseAdmin.auth.admin.generateLink({
-            type: "magiclink",
+            type: isFirstTimeUser ? "recovery" : "magiclink",
             email,
             options: {
-                redirectTo: `${siteOrigin}/student/magic?next=/student/dashboard`,
+                redirectTo: isFirstTimeUser
+                    ? `${siteOrigin}/student/reset-password`
+                    : `${siteOrigin}/student/magic?next=/student/dashboard`,
             },
         });
 
         if (error) {
-            console.error("Reconciliation magic link generation error:", error);
+            console.error(`Reconciliation ${isFirstTimeUser ? "recovery" : "magic"} link generation error:`, error);
             return fallbackUrl;
         }
 
         return data?.properties?.action_link || fallbackUrl;
     } catch (error) {
-        console.error("Reconciliation magic link generation exception:", error);
+        console.error(`Reconciliation ${isFirstTimeUser ? "recovery" : "magic"} link generation exception:`, error);
         return fallbackUrl;
     }
 }
@@ -260,7 +263,15 @@ async function reconcilePaidSession(session: any) {
         safeText(session?.customer_details?.email, 200) ||
         safeText(session?.customer_email, 200) ||
         safeText(metadata.student_email, 200);
+    const stripeEnteredName =
+        Array.isArray(session?.custom_fields)
+            ? safeText(
+                session.custom_fields.find((f: any) => f?.key === "student_name")?.text?.value,
+                120
+            )
+            : "";
     const rawCustomerName =
+        stripeEnteredName ||
         safeText(metadata.student_name, 120) ||
         safeText(session?.customer_details?.name, 120) ||
         "";
@@ -272,8 +283,29 @@ async function reconcilePaidSession(session: any) {
     if (userId && !isUuid(userId)) {
         userId = "";
     }
+    let userCreatedThisPayment = false;
     if (!userId && customerEmail) {
         userId = (await lookupUserIdByEmail(customerEmail)) || "";
+    }
+    if (!userId && customerEmail) {
+        const customerNameForAuth = normalizeCustomerDisplayName(rawCustomerName, customerEmail);
+        const { data: createdUserData, error: createUserError } = await supabaseAdmin.auth.admin.createUser({
+            email: customerEmail,
+            email_confirm: true,
+            user_metadata: {
+                full_name: customerNameForAuth,
+                name: customerNameForAuth.split(" ")[0] || customerNameForAuth,
+                role: "student",
+            },
+        });
+
+        if (createdUserData?.user?.id) {
+            userId = createdUserData.user.id;
+            userCreatedThisPayment = true;
+        } else if (createUserError) {
+            console.error("Reconciliation user auto-create error:", createUserError);
+            userId = (await lookupUserIdByEmail(customerEmail)) || "";
+        }
     }
 
     const { data: existingRows, error: existingError } = await supabaseAdmin
@@ -426,7 +458,9 @@ async function reconcilePaidSession(session: any) {
     }
 
     if (RECONCILIATION_SEND_CONFIRMATION_EMAIL && customerEmail && !confirmationEmailSentAt) {
-        const dashboardUrl = await buildManageBookingUrl(customerEmail);
+        const dashboardUrl = await buildManageBookingUrl(customerEmail, {
+            isFirstTimeUser: userCreatedThisPayment,
+        });
         const serviceDisplayName = resolveServiceDisplayName(
             safeText(metadata.class_name, 150),
             paymentType,
