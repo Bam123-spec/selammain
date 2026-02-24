@@ -599,7 +599,8 @@ export async function POST(req: Request) {
 
         try {
             const email = customer?.email || (session as any).customer_email || meta.student_email;
-            const rawName = meta.student_name || session.custom_fields?.find((f: any) => f.key === 'student_name')?.text?.value || customer?.name || '';
+            const stripeEnteredName = session.custom_fields?.find((f: any) => f.key === 'student_name')?.text?.value || '';
+            const rawName = stripeEnteredName || meta.student_name || customer?.name || '';
             const phone = customer?.phone || meta.student_phone;
 
             if (!email) {

@@ -169,6 +169,21 @@ export async function POST(request: NextRequest) {
                 phone_number_collection: {
                     enabled: true,
                 },
+                custom_fields: [
+                    {
+                        key: "student_name",
+                        label: {
+                            type: "custom",
+                            custom: "Full Name",
+                        },
+                        type: "text",
+                        text: {
+                            minimum_length: 2,
+                            maximum_length: 120,
+                        },
+                        optional: false,
+                    },
+                ],
                 line_items: [
                     {
                         price: priceId,
