@@ -48,9 +48,30 @@ function matchesClassification(session: RawClassSession, classification: DeClass
         : ""
     const name = typeof session.name === "string" ? session.name.toLowerCase() : ""
     const startTime = typeof session.daily_start_time === "string" ? session.daily_start_time : ""
+    const startDate = typeof session.start_date === "string" ? session.start_date : ""
+
+    const parsedStartDate = startDate ? new Date(`${startDate}T00:00:00`) : null
+    const startsOnWeekend =
+        !!parsedStartDate &&
+        !Number.isNaN(parsedStartDate.getTime()) &&
+        (parsedStartDate.getDay() === 0 || parsedStartDate.getDay() === 6)
+
+    const looksWeekend =
+        explicitClassification.includes("weekend") ||
+        name.includes("weekend") ||
+        startsOnWeekend ||
+        startTime.startsWith("10") ||
+        name.includes("5 week")
 
     // Prefer explicit classification from DB when available, but keep name/time heuristics
     // to support older rows that may not have classification populated consistently.
+    if (classification === "weekend") {
+        return looksWeekend || explicitClassification.includes("weekend")
+    }
+
+    // Guard against weekend classes mislabeled as "evening" in old rows.
+    if (looksWeekend) return false
+
     if (explicitClassification.includes(classification)) return true
 
     if (classification === "morning") {
@@ -59,7 +80,7 @@ function matchesClassification(session: RawClassSession, classification: DeClass
     if (classification === "evening") {
         return startTime.startsWith("17") || startTime.startsWith("18") || name.includes("evening")
     }
-    return name.includes("weekend") || startTime.startsWith("10")
+    return looksWeekend
 }
 
 function defaultPriceFor(classification: DeClassification) {
