@@ -10,6 +10,9 @@ type CheckoutBody = {
     customer_email?: string;
 };
 
+const PLATFORM_FEE_RATE = 0.008; // 0.8%
+const MIN_PLATFORM_FEE_CENTS = 25;
+
 function errorResponse(status: number, code: string, message: string) {
     return NextResponse.json(
         { error: { code, message } },
@@ -27,6 +30,20 @@ function isValidConnectedAccountId(value: string) {
 
 function isValidPriceId(value: string) {
     return /^price_[A-Za-z0-9]+$/.test(value);
+}
+
+function toAmountCents(value: unknown) {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return null;
+    const cents = Math.trunc(num);
+    return cents >= 0 ? cents : null;
+}
+
+function computePlatformFeeCents(totalAmountCents: number) {
+    const rawFee = Math.round(totalAmountCents * PLATFORM_FEE_RATE);
+    const flooredFee = Math.max(rawFee, MIN_PLATFORM_FEE_CENTS);
+    // Never let the app fee exceed the total charge amount.
+    return Math.min(flooredFee, totalAmountCents);
 }
 
 export async function POST(request: NextRequest) {
@@ -55,7 +72,7 @@ export async function POST(request: NextRequest) {
         const { data: serviceOffering, error: serviceError } = await supabaseAdmin
             .from("service_offerings")
             .select(
-                "slug, display_name, active, stripe_price_id, stripe_product_id, connected_account_id, currency"
+                "slug, display_name, active, stripe_price_id, stripe_product_id, connected_account_id, currency, amount_cents"
             )
             .eq("slug", serviceSlug)
             .eq("active", true)
@@ -89,11 +106,29 @@ export async function POST(request: NextRequest) {
             );
         }
 
+        // Source of truth for fee calculation should match what Checkout actually charges.
+        // We charge via Stripe Price ID, so retrieve the Stripe Price and use unit_amount.
+        const stripePrice = await stripeFetch(
+            `/prices/${encodeURIComponent(serviceOffering.stripe_price_id)}`,
+            "GET"
+        );
+        const totalAmountCents = toAmountCents((stripePrice as any)?.unit_amount);
+        if (totalAmountCents == null || totalAmountCents <= 0) {
+            return errorResponse(
+                400,
+                "invalid_amount_cents",
+                "Service has an invalid Stripe Price amount."
+            );
+        }
+
+        const platformFee = computePlatformFeeCents(totalAmountCents);
+
+        const configuredOrigin = (process.env.NEXT_PUBLIC_APP_URL || "").trim().replace(/\/$/, "");
         const forwardedProto = request.headers.get("x-forwarded-proto");
         const forwardedHost = request.headers.get("x-forwarded-host");
         const host = forwardedHost || request.headers.get("host") || request.nextUrl.host;
         const protocol = forwardedProto || "https";
-        const origin = `${protocol}://${host}`;
+        const origin = configuredOrigin || `${protocol}://${host}`;
 
         const successUrl = `${origin}/services/${encodeURIComponent(serviceOffering.slug)}/success?session_id={CHECKOUT_SESSION_ID}`;
         const cancelUrl = `${origin}/services/${encodeURIComponent(serviceOffering.slug)}`;
@@ -112,14 +147,17 @@ export async function POST(request: NextRequest) {
                 ],
                 success_url: successUrl,
                 cancel_url: cancelUrl,
+                payment_intent_data: {
+                    application_fee_amount: platformFee,
+                    transfer_data: {
+                        destination: serviceOffering.connected_account_id,
+                    },
+                },
                 ...(body.customer_email ? { customer_email: body.customer_email } : {}),
                 metadata: {
                     service_slug: serviceOffering.slug,
                     service_name: serviceOffering.display_name,
                 },
-            },
-            {
-                stripeAccount: serviceOffering.connected_account_id,
             }
         );
 

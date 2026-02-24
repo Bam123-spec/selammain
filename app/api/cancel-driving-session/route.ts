@@ -52,8 +52,19 @@ export async function DELETE(request: NextRequest) {
         if (existingSession.status === "cancelled") {
             return NextResponse.json({ error: "Booking is already cancelled" }, { status: 400 });
         }
-        if (existingSession.start_time && new Date(existingSession.start_time) <= new Date()) {
+        const now = new Date();
+        if (existingSession.start_time && new Date(existingSession.start_time) <= now) {
             return NextResponse.json({ error: "Only future bookings can be cancelled" }, { status: 400 });
+        }
+        if (existingSession.start_time) {
+            const startTime = new Date(existingSession.start_time);
+            const twentyFourHoursMs = 24 * 60 * 60 * 1000;
+            if (startTime.getTime() - now.getTime() < twentyFourHoursMs) {
+                return NextResponse.json(
+                    { error: "Bookings can only be cancelled at least 24 hours in advance." },
+                    { status: 400 }
+                );
+            }
         }
 
         const planKey = String(existingSession.plan_key || existingSession.service_slug || "").trim();

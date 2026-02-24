@@ -591,7 +591,7 @@ function DashboardContent() {
                                                     )}>
                                                         {session.status}
                                                     </Badge>
-                                                    {session.status !== 'cancelled' && new Date(session.start_time) > new Date() && (
+                                                    {session.status !== 'cancelled' && (new Date(session.start_time).getTime() - Date.now()) >= (24 * 60 * 60 * 1000) && (
                                                         <Button
                                                             type="button"
                                                             variant="outline"
