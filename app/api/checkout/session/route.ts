@@ -6,7 +6,9 @@ import { getSafeStripeError } from "@/lib/stripe-errors";
 import { generateStudentBookingEmail, sendBrevoEmail } from "@/lib/email";
 
 export const runtime = "edge";
-const RECONCILIATION_SEND_CONFIRMATION_EMAIL = process.env.RECONCILIATION_SEND_CONFIRMATION_EMAIL === "1";
+// Enable confirmation-email fallback by default when the success page reconciles a paid Stripe session.
+// Set RECONCILIATION_SEND_CONFIRMATION_EMAIL=0 to disable explicitly.
+const RECONCILIATION_SEND_CONFIRMATION_EMAIL = process.env.RECONCILIATION_SEND_CONFIRMATION_EMAIL !== "0";
 
 type ServiceOfferingRow = {
     slug: string;
