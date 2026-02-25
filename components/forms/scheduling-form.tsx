@@ -71,6 +71,17 @@ const DIRECT_PLAN_DEFAULTS: Record<DirectPaidPlan, { name: string; duration_minu
     "road-test-2hr": { name: "Road Test Escort + 2 Hour", duration_minutes: 210 },
 }
 
+const REALTIME_AVAILABILITY_PLANS = [
+    'btw',
+    'driving-practice-2hr',
+    'driving-practice-1hr',
+    'road-test-escort',
+    'road-test-1hr',
+    'road-test-2hr'
+] as const
+
+const AVAILABILITY_CACHE_TTL_MS = 30_000
+
 export function SchedulingForm({ defaultPlan }: { defaultPlan?: string }) {
     const searchParams = useSearchParams()
     const router = useRouter()
@@ -126,6 +137,8 @@ export function SchedulingForm({ defaultPlan }: { defaultPlan?: string }) {
     const selectedInstructor = form.watch("instructor")
     const selectedTime = form.watch("time")
     const selectedService = form.watch("service")
+    const availabilityCacheRef = React.useRef<Map<string, { slots: string[]; cachedAt: number }>>(new Map())
+    const availabilityRequestIdRef = React.useRef(0)
 
     // Fetch instructors and services on mount
     React.useEffect(() => {
@@ -224,49 +237,102 @@ export function SchedulingForm({ defaultPlan }: { defaultPlan?: string }) {
         }
     }, [selectedService])
 
+    const fetchAvailabilityFor = React.useCallback(async (
+        planKey: string,
+        dateStr: string,
+        options?: { silent?: boolean; requestId?: number }
+    ) => {
+        const cacheKey = `${planKey}:${dateStr}`
+        try {
+            const response = await fetch(`/api/availability?plan_key=${planKey}&date=${dateStr}`)
+            const data = await response.json().catch(() => ({}))
+
+            if (Array.isArray(data?.slots)) {
+                availabilityCacheRef.current.set(cacheKey, {
+                    slots: data.slots,
+                    cachedAt: Date.now(),
+                })
+
+                const isLatestRequest =
+                    options?.requestId == null || options.requestId === availabilityRequestIdRef.current
+                if (isLatestRequest) {
+                    setAvailableSlots(data.slots)
+                }
+                return data.slots as string[]
+            }
+
+            if (!options?.silent) {
+                console.error("Availability error:", data?.error)
+                toast.error("Failed to load available times.")
+            }
+            return null
+        } catch (err) {
+            if (!options?.silent) {
+                console.error("Error fetching availability:", err)
+                toast.error("Network error. Please try again.")
+            }
+            return null
+        }
+    }, [])
+
     // Fetch real-time availability when date or service changes
     React.useEffect(() => {
-        const REALTIME_PLANS = [
-            'btw',
-            'driving-practice-2hr',
-            'driving-practice-1hr',
-            'road-test-escort',
-            'road-test-1hr',
-            'road-test-2hr'
-        ]
-
-        if (!selectedDate || !REALTIME_PLANS.includes(selectedService)) {
-            if (!REALTIME_PLANS.includes(selectedService)) setAvailableSlots(["07:00", "09:00", "11:00", "13:00", "15:00", "17:00", "19:00"])
-            // For road-test-escort, we might only want to show it if they have a date? 
-            // Actually, we'll keep the default slots for non-realtime or handle them.
+        if (!selectedDate || !REALTIME_AVAILABILITY_PLANS.includes(selectedService as any)) {
+            if (!REALTIME_AVAILABILITY_PLANS.includes(selectedService as any)) {
+                setAvailableSlots(["07:00", "09:00", "11:00", "13:00", "15:00", "17:00", "19:00"])
+            }
+            setIsFetchingAvailability(false)
             return
         }
 
-        const fetchAvailability = async () => {
-            setIsFetchingAvailability(true)
-            setAvailableSlots([]) // Reset slots while fetching to trigger loading state if we want, or keep old ones. 
-            // Better to clear or show loading overlap.
-            try {
-                const dateStr = format(selectedDate, "yyyy-MM-dd")
-                const response = await fetch(`/api/availability?plan_key=${selectedService}&date=${dateStr}`)
-                const data = await response.json()
+        const dateStr = format(selectedDate, "yyyy-MM-dd")
+        const cacheKey = `${selectedService}:${dateStr}`
+        const cached = availabilityCacheRef.current.get(cacheKey)
+        const isFresh = !!cached && (Date.now() - cached.cachedAt) < AVAILABILITY_CACHE_TTL_MS
+        const requestId = ++availabilityRequestIdRef.current
 
-                if (data.slots) {
-                    setAvailableSlots(data.slots)
-                } else if (data.error) {
-                    console.error("Availability error:", data.error)
-                    toast.error("Failed to load available times.")
-                }
-            } catch (err) {
-                console.error("Error fetching availability:", err)
-                toast.error("Network error. Please try again.")
-            } finally {
+        if (isFresh) {
+            setAvailableSlots(cached!.slots)
+            setIsFetchingAvailability(false)
+        } else {
+            // Keep previous slots visible while loading to avoid a blank UI flash.
+            setIsFetchingAvailability(true)
+        }
+
+        let cancelled = false
+
+        const load = async () => {
+            const slots = await fetchAvailabilityFor(selectedService, dateStr, {
+                silent: false,
+                requestId,
+            })
+
+            if (!cancelled && requestId === availabilityRequestIdRef.current) {
                 setIsFetchingAvailability(false)
+            }
+
+            // Warm nearby dates in the background to make next clicks feel faster.
+            if (slots && !cancelled) {
+                const nearbyDates = [addDays(selectedDate, 1), addDays(selectedDate, -1)]
+                    .map((d) => format(d, "yyyy-MM-dd"))
+
+                for (const nearbyDate of nearbyDates) {
+                    const nearbyKey = `${selectedService}:${nearbyDate}`
+                    const nearbyCached = availabilityCacheRef.current.get(nearbyKey)
+                    const nearbyFresh = !!nearbyCached && (Date.now() - nearbyCached.cachedAt) < AVAILABILITY_CACHE_TTL_MS
+                    if (!nearbyFresh) {
+                        void fetchAvailabilityFor(selectedService, nearbyDate, { silent: true })
+                    }
+                }
             }
         }
 
-        fetchAvailability()
-    }, [selectedDate, selectedService])
+        void load()
+
+        return () => {
+            cancelled = true
+        }
+    }, [selectedDate, selectedService, fetchAvailabilityFor])
 
 
 
@@ -301,8 +367,7 @@ export function SchedulingForm({ defaultPlan }: { defaultPlan?: string }) {
         setIsLoading(true)
         try {
             // For realtime plans, values.time is a full ISO string
-            const REALTIME_PLANS = ['btw', 'driving-practice-2hr', 'driving-practice-1hr', 'road-test-escort', 'road-test-1hr', 'road-test-2hr']
-            const isRealtime = plan && REALTIME_PLANS.includes(plan)
+            const isRealtime = plan && REALTIME_AVAILABILITY_PLANS.includes(plan as any)
             const startTimeStr = isRealtime ? values.time : (() => {
                 const [hours, minutes] = values.time.split(':').map(Number)
                 const d = new Date(values.date)
