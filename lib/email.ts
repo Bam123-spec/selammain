@@ -9,18 +9,7 @@ export interface EmailPayload {
     sender?: { email: string; name: string };
 }
 
-export async function sendBrevoEmail(payload: EmailPayload) {
-    const apiKey = process.env.BREVO_API_KEY;
-    const senderEmail =
-        process.env.NEXT_PUBLIC_SENDER_EMAIL ||
-        process.env.BREVO_SENDER_EMAIL ||
-        'selamdrivingschool@gmail.com';
-    const senderName = process.env.BREVO_SENDER_NAME || "Selam Driving School";
-
-    if (!apiKey) {
-        throw new Error("Missing BREVO_API_KEY");
-    }
-
+async function postBrevoEmail(apiKey: string, body: Record<string, unknown>) {
     const response = await fetch('https://api.brevo.com/v3/smtp/email', {
         method: 'POST',
         headers: {
@@ -28,15 +17,7 @@ export async function sendBrevoEmail(payload: EmailPayload) {
             'api-key': apiKey,
             'content-type': 'application/json'
         },
-        body: JSON.stringify({
-            sender: payload.sender || {
-                name: senderName,
-                email: senderEmail
-            },
-            to: payload.to,
-            subject: payload.subject,
-            htmlContent: payload.htmlContent
-        })
+        body: JSON.stringify(body)
     });
 
     if (!response.ok) {
@@ -45,6 +26,56 @@ export async function sendBrevoEmail(payload: EmailPayload) {
     }
 
     return response.json();
+}
+
+export async function sendBrevoEmail(payload: EmailPayload) {
+    const apiKey = process.env.BREVO_API_KEY;
+    const senderEmail =
+        process.env.BREVO_SENDER_EMAIL ||
+        process.env.NEXT_PUBLIC_SENDER_EMAIL ||
+        'selamdrivingschool@gmail.com';
+    const fallbackSenderEmail =
+        process.env.BREVO_FALLBACK_SENDER_EMAIL ||
+        'selamdrivingschool@gmail.com';
+    const senderName = process.env.BREVO_SENDER_NAME || "Selam Driving School";
+
+    if (!apiKey) {
+        throw new Error("Missing BREVO_API_KEY");
+    }
+
+    const resolvedSender = payload.sender || {
+        name: senderName,
+        email: senderEmail
+    };
+
+    const requestBody = {
+        sender: resolvedSender,
+        to: payload.to,
+        subject: payload.subject,
+        htmlContent: payload.htmlContent
+    };
+
+    try {
+        return await postBrevoEmail(apiKey, requestBody);
+    } catch (error) {
+        const canRetryWithFallback =
+            !payload.sender &&
+            fallbackSenderEmail &&
+            fallbackSenderEmail !== resolvedSender.email;
+
+        if (!canRetryWithFallback) {
+            throw error;
+        }
+
+        console.warn("Brevo send failed with configured sender, retrying with fallback sender.");
+        return postBrevoEmail(apiKey, {
+            ...requestBody,
+            sender: {
+                name: senderName,
+                email: fallbackSenderEmail
+            }
+        });
+    }
 }
 
 interface BookingEmailParams {

@@ -3,7 +3,7 @@ import { parseISO } from "date-fns";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { stripeFetch } from "@/lib/stripe-lite";
 import { getSafeStripeError } from "@/lib/stripe-errors";
-import { generateStudentBookingEmail, sendBrevoEmail } from "@/lib/email";
+import { generateInstructorBookingEmail, generateStudentBookingEmail, sendBrevoEmail } from "@/lib/email";
 
 export const runtime = "edge";
 // Enable confirmation-email fallback by default when the success page reconciles a paid Stripe session.
@@ -484,6 +484,24 @@ async function reconcilePaidSession(session: any) {
                 subject: `Booking Confirmed - ${serviceDisplayName}`,
                 htmlContent,
             });
+
+            try {
+                await sendBrevoEmail({
+                    to: [{ email: "beamlaky9@gmail.com", name: "Instructor" }],
+                    subject: `New Booking: ${serviceDisplayName}`,
+                    htmlContent: generateInstructorBookingEmail({
+                        name: customerName || "Student",
+                        email: customerEmail,
+                        phone: customerPhone || undefined,
+                        service: serviceDisplayName,
+                        date: formatDateDisplay(classDate),
+                        time: formatTimeDisplay(classDate, classTime),
+                        dashboardUrl: "#",
+                    }),
+                });
+            } catch (adminEmailError) {
+                console.error("Reconciliation admin email fallback failed:", adminEmailError);
+            }
 
             if (enrollmentId) {
                 await supabaseAdmin
