@@ -54,6 +54,13 @@ export default function DrivingPracticePage() {
 
     const goToPackages = (href: string) => {
         router.push(href)
+
+        // Fallback for rare client-navigation stalls from dropdown selection in production.
+        window.setTimeout(() => {
+            if (window.location.pathname === "/services/driving-practice") {
+                window.location.assign(href)
+            }
+        }, 400)
     }
 
     return (
@@ -108,7 +115,12 @@ export default function DrivingPracticePage() {
                                         </Button>
                                     </DropdownMenuTrigger>
                                     <DropdownMenuContent align="start" className="w-[260px] p-2">
-                                        <DropdownMenuItem className="p-3 cursor-pointer" onSelect={() => goToPackages(silverSpringHref)}>
+                                        <DropdownMenuItem
+                                            className="p-3 cursor-pointer"
+                                            onMouseEnter={() => router.prefetch(silverSpringHref)}
+                                            onFocus={() => router.prefetch(silverSpringHref)}
+                                            onSelect={() => goToPackages(silverSpringHref)}
+                                        >
                                             <div className="flex items-center gap-3">
                                                 <div className="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center shrink-0">
                                                     <MapPin className="w-4 h-4 text-red-600" />
@@ -119,7 +131,12 @@ export default function DrivingPracticePage() {
                                                 </div>
                                             </div>
                                         </DropdownMenuItem>
-                                        <DropdownMenuItem className="p-3 cursor-pointer" onSelect={() => goToPackages(bethesdaHref)}>
+                                        <DropdownMenuItem
+                                            className="p-3 cursor-pointer"
+                                            onMouseEnter={() => router.prefetch(bethesdaHref)}
+                                            onFocus={() => router.prefetch(bethesdaHref)}
+                                            onSelect={() => goToPackages(bethesdaHref)}
+                                        >
                                             <div className="flex items-center gap-3">
                                                 <div className="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center shrink-0">
                                                     <MapPin className="w-4 h-4 text-red-600" />
@@ -285,7 +302,12 @@ export default function DrivingPracticePage() {
                                 </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="center" className="w-[280px] p-2">
-                                <DropdownMenuItem className="p-3 cursor-pointer" onSelect={() => goToPackages(silverSpringHref)}>
+                                <DropdownMenuItem
+                                    className="p-3 cursor-pointer"
+                                    onMouseEnter={() => router.prefetch(silverSpringHref)}
+                                    onFocus={() => router.prefetch(silverSpringHref)}
+                                    onSelect={() => goToPackages(silverSpringHref)}
+                                >
                                     <div className="flex items-center gap-3">
                                         <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center shrink-0">
                                             <MapPin className="w-5 h-5 text-red-600" />
@@ -296,7 +318,12 @@ export default function DrivingPracticePage() {
                                         </div>
                                     </div>
                                 </DropdownMenuItem>
-                                <DropdownMenuItem className="p-3 cursor-pointer" onSelect={() => goToPackages(bethesdaHref)}>
+                                <DropdownMenuItem
+                                    className="p-3 cursor-pointer"
+                                    onMouseEnter={() => router.prefetch(bethesdaHref)}
+                                    onFocus={() => router.prefetch(bethesdaHref)}
+                                    onSelect={() => goToPackages(bethesdaHref)}
+                                >
                                     <div className="flex items-center gap-3">
                                         <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center shrink-0">
                                             <MapPin className="w-5 h-5 text-red-600" />
