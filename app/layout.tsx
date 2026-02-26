@@ -4,6 +4,7 @@ import { Header } from "@/components/layout/header"
 import { Footer } from "@/components/layout/footer"
 import { Toaster } from "@/components/ui/sonner"
 import { Chatbot } from "@/components/features/chatbot"
+import { Analytics } from "@vercel/analytics/next"
 import "./globals.css"
 
 const geist = Geist({ subsets: ["latin"], variable: "--font-geist" })
@@ -70,6 +71,7 @@ export default function RootLayout({
         <Chatbot />
         <Footer />
         <Toaster />
+        <Analytics />
       </body>
     </html>
   )
