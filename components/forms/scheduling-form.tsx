@@ -138,6 +138,7 @@ export function SchedulingForm({ defaultPlan }: { defaultPlan?: string }) {
     const selectedTime = form.watch("time")
     const selectedService = form.watch("service")
     const availabilityCacheRef = React.useRef<Map<string, { slots: string[]; cachedAt: number }>>(new Map())
+    const availabilityInFlightRef = React.useRef<Map<string, Promise<string[] | null>>>(new Map())
     const availabilityRequestIdRef = React.useRef(0)
 
     // Fetch instructors and services on mount
@@ -240,39 +241,69 @@ export function SchedulingForm({ defaultPlan }: { defaultPlan?: string }) {
     const fetchAvailabilityFor = React.useCallback(async (
         planKey: string,
         dateStr: string,
-        options?: { silent?: boolean; requestId?: number }
+        options?: { silent?: boolean; requestId?: number; updateVisibleSlots?: boolean }
     ) => {
         const cacheKey = `${planKey}:${dateStr}`
-        try {
-            const response = await fetch(`/api/availability?plan_key=${planKey}&date=${dateStr}`)
-            const data = await response.json().catch(() => ({}))
+        const shouldUpdateVisibleSlots = options?.updateVisibleSlots !== false
 
-            if (Array.isArray(data?.slots)) {
-                availabilityCacheRef.current.set(cacheKey, {
-                    slots: data.slots,
-                    cachedAt: Date.now(),
-                })
-
-                const isLatestRequest =
-                    options?.requestId == null || options.requestId === availabilityRequestIdRef.current
-                if (isLatestRequest) {
-                    setAvailableSlots(data.slots)
-                }
-                return data.slots as string[]
+        const existingRequest = availabilityInFlightRef.current.get(cacheKey)
+        if (existingRequest) {
+            const slots = await existingRequest
+            const isLatestRequest =
+                options?.requestId == null || options.requestId === availabilityRequestIdRef.current
+            if (slots && shouldUpdateVisibleSlots && isLatestRequest) {
+                setAvailableSlots(slots)
             }
-
-            if (!options?.silent) {
-                console.error("Availability error:", data?.error)
-                toast.error("Failed to load available times.")
-            }
-            return null
-        } catch (err) {
-            if (!options?.silent) {
-                console.error("Error fetching availability:", err)
-                toast.error("Network error. Please try again.")
-            }
-            return null
+            return slots
         }
+
+        const requestPromise = (async () => {
+            try {
+                const response = await fetch(`/api/availability?plan_key=${planKey}&date=${dateStr}`, {
+                    cache: "no-store",
+                })
+                const data = await response.json().catch(() => ({}))
+
+                if (!response.ok) {
+                    if (!options?.silent) {
+                        console.error("Availability error:", data?.error || response.status)
+                        toast.error("Failed to load available times.")
+                    }
+                    return null
+                }
+
+                if (Array.isArray(data?.slots)) {
+                    availabilityCacheRef.current.set(cacheKey, {
+                        slots: data.slots,
+                        cachedAt: Date.now(),
+                    })
+
+                    const isLatestRequest =
+                        options?.requestId == null || options.requestId === availabilityRequestIdRef.current
+                    if (shouldUpdateVisibleSlots && isLatestRequest) {
+                        setAvailableSlots(data.slots)
+                    }
+                    return data.slots as string[]
+                }
+
+                if (!options?.silent) {
+                    console.error("Availability error:", data?.error)
+                    toast.error("Failed to load available times.")
+                }
+                return null
+            } catch (err) {
+                if (!options?.silent) {
+                    console.error("Error fetching availability:", err)
+                    toast.error("Network error. Please try again.")
+                }
+                return null
+            } finally {
+                availabilityInFlightRef.current.delete(cacheKey)
+            }
+        })()
+
+        availabilityInFlightRef.current.set(cacheKey, requestPromise)
+        return requestPromise
     }, [])
 
     // Fetch real-time availability when date or service changes
@@ -321,7 +352,10 @@ export function SchedulingForm({ defaultPlan }: { defaultPlan?: string }) {
                     const nearbyCached = availabilityCacheRef.current.get(nearbyKey)
                     const nearbyFresh = !!nearbyCached && (Date.now() - nearbyCached.cachedAt) < AVAILABILITY_CACHE_TTL_MS
                     if (!nearbyFresh) {
-                        void fetchAvailabilityFor(selectedService, nearbyDate, { silent: true })
+                        void fetchAvailabilityFor(selectedService, nearbyDate, {
+                            silent: true,
+                            updateVisibleSlots: false,
+                        })
                     }
                 }
             }
