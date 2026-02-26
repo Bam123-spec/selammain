@@ -443,6 +443,9 @@ export async function POST(req: Request) {
 
         // 4. Send Confirmation Emails (idempotent; avoid duplicate sends when reconciliation already sent one)
         let confirmationEmailAlreadySent = false;
+        let adminNotificationEmailAlreadySent = false;
+        let emailFlagRowId = '';
+        let emailFlagCustomerDetails: any = {};
         if (data.stripeSessionId) {
             const { data: enrollmentRowsForEmailFlag, error: enrollmentEmailFlagError } = await supabaseAdmin
                 .from('enrollments')
@@ -454,8 +457,10 @@ export async function POST(req: Request) {
                 console.error('Enrollment email-flag lookup error:', enrollmentEmailFlagError);
             } else {
                 const row = enrollmentRowsForEmailFlag?.[0];
-                const details = (row?.customer_details || {}) as any;
-                confirmationEmailAlreadySent = !!details?.confirmation_email_sent_at;
+                emailFlagRowId = row?.id || '';
+                emailFlagCustomerDetails = (row?.customer_details || {}) as any;
+                confirmationEmailAlreadySent = !!emailFlagCustomerDetails?.confirmation_email_sent_at;
+                adminNotificationEmailAlreadySent = !!emailFlagCustomerDetails?.admin_notification_email_sent_at;
             }
         }
 
@@ -549,27 +554,19 @@ export async function POST(req: Request) {
                     htmlContent: studentEmailHtml
                 });
 
-                if (data.stripeSessionId) {
-                    const { data: rowsToMark } = await supabaseAdmin
+                if (emailFlagRowId) {
+                    const sentAt = new Date().toISOString();
+                    emailFlagCustomerDetails = {
+                        ...emailFlagCustomerDetails,
+                        confirmation_email_sent_at: sentAt,
+                    };
+                    await supabaseAdmin
                         .from('enrollments')
-                        .select('id, customer_details')
-                        .eq('stripe_session_id', data.stripeSessionId)
-                        .limit(1);
-
-                    const row = rowsToMark?.[0];
-                    if (row?.id) {
-                        const details = (row.customer_details || {}) as any;
-                        await supabaseAdmin
-                            .from('enrollments')
-                            .update({
-                                customer_details: {
-                                    ...details,
-                                    confirmation_email_sent_at: new Date().toISOString(),
-                                },
-                                updated_at: new Date().toISOString(),
-                            })
-                            .eq('id', row.id);
-                    }
+                        .update({
+                            customer_details: emailFlagCustomerDetails,
+                            updated_at: sentAt,
+                        })
+                        .eq('id', emailFlagRowId);
                 }
             } catch (emailError) {
                 console.error('Failed to send student confirmation email:', emailError);
@@ -578,23 +575,42 @@ export async function POST(req: Request) {
             console.log('Student confirmation email already sent, skipping duplicate.');
         }
 
-        try {
-            await sendBrevoEmail({
-                to: [{ email: 'beamlaky9@gmail.com', name: 'Instructor' }],
-                subject: `New Booking: ${serviceDisplayName}`,
-                htmlContent: generateInstructorBookingEmail({
-                    name: studentDisplayName,
-                    email: data.studentEmail,
-                    phone: data.phone,
-                    service: serviceDisplayName,
-                    date: dateDisp,
-                    time: timeDisp,
-                    dashboardUrl: '#',
-                    googleCalendarUrl: googleCalendarUrl
-                })
-            });
-        } catch (emailError) {
-            console.error('Failed to send instructor notification email:', emailError);
+        if (!adminNotificationEmailAlreadySent) {
+            try {
+                await sendBrevoEmail({
+                    to: [{ email: 'beamlaky9@gmail.com', name: 'Instructor' }],
+                    subject: `New Booking: ${serviceDisplayName}`,
+                    htmlContent: generateInstructorBookingEmail({
+                        name: studentDisplayName,
+                        email: data.studentEmail,
+                        phone: data.phone,
+                        service: serviceDisplayName,
+                        date: dateDisp,
+                        time: timeDisp,
+                        dashboardUrl: '#',
+                        googleCalendarUrl: googleCalendarUrl
+                    })
+                });
+
+                if (emailFlagRowId) {
+                    const sentAt = new Date().toISOString();
+                    emailFlagCustomerDetails = {
+                        ...emailFlagCustomerDetails,
+                        admin_notification_email_sent_at: sentAt,
+                    };
+                    await supabaseAdmin
+                        .from('enrollments')
+                        .update({
+                            customer_details: emailFlagCustomerDetails,
+                            updated_at: sentAt,
+                        })
+                        .eq('id', emailFlagRowId);
+                }
+            } catch (emailError) {
+                console.error('Failed to send instructor notification email:', emailError);
+            }
+        } else {
+            console.log('Instructor notification email already sent, skipping duplicate.');
         }
     }
 
