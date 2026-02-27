@@ -6,7 +6,7 @@ import { generateInstructorBookingEmail, generateStudentBookingEmail, sendBrevoE
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getTimeZoneOffsetMinutesForDate, toUtcDateFromLocal } from "@/lib/timezone";
 
-const ADMIN_RESCHEDULE_EMAIL = process.env.ADMIN_RESCHEDULE_EMAIL || "beamlaky9@gmail.com";
+const ADMIN_RESCHEDULE_EMAIL = process.env.ADMIN_RESCHEDULE_EMAIL || "selamdrivingschool@gmail.com";
 
 function parseClockTime(timeStr: string) {
   const match = timeStr.match(/(\d+):(\d+)\s*(AM|PM)/i);

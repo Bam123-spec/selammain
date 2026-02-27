@@ -6,7 +6,7 @@ import { sendBrevoEmail, generateInstructorBookingEmail, generateStudentBookingE
 import { supabaseAdmin } from "@/lib/supabase/admin"
 import { getTimeZoneOffsetMinutesForDate, toUtcDateFromLocal } from "@/lib/timezone"
 
-const ADMIN_RESCHEDULE_EMAIL = process.env.ADMIN_RESCHEDULE_EMAIL || "beamlaky9@gmail.com"
+const ADMIN_RESCHEDULE_EMAIL = process.env.ADMIN_RESCHEDULE_EMAIL || "selamdrivingschool@gmail.com"
 
 export async function POST(request: NextRequest) {
     try {

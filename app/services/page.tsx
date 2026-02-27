@@ -256,7 +256,7 @@ export default function ServicesPage() {
                                         <div>
                                             <p className="text-sm text-gray-500 font-medium">
                                                 Phone: (301) 755-6986 <br />
-                                                Email: beamlaky9@gmail.com
+                                                Email: selamdrivingschool@gmail.com
                                             </p>
                                         </div>
                                     </div>

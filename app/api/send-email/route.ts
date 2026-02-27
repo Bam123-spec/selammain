@@ -40,7 +40,7 @@ export async function POST(request: Request) {
 
         if (emailType === 'instructor') {
             await sendBrevoEmail({
-                to: [{ email: 'beamlaky9@gmail.com', name: 'Instructor' }],
+                to: [{ email: 'selamdrivingschool@gmail.com', name: 'Instructor' }],
                 subject: 'New Booking Alert - Selam Driving School',
                 htmlContent: generateInstructorBookingEmail({ name, email, service, date, time, instructor, dashboardUrl: '#', googleCalendarUrl })
             });
