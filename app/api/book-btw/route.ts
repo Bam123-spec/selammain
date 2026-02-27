@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { sendBrevoEmail, generateStudentBookingEmail, generateBtwCompletionEmail } from "@/lib/email"
 import { supabaseAdmin } from "@/lib/supabase/admin"
 import { getTimeZoneOffsetMinutesForDate, toUtcDateFromLocal } from "@/lib/timezone"
+import { hasTimeConflict } from "@/lib/time-overlap"
 
 export async function POST(request: NextRequest) {
     try {
@@ -253,12 +254,7 @@ export async function POST(request: NextRequest) {
             const slotEndUTC = addMinutes(currentSlotUTC, durationMinutes)
             if (slotEndUTC > dayEndLimitUTC) break;
 
-            const slotStartStr = currentSlotUTC.toISOString()
-            const slotEndStr = slotEndUTC.toISOString()
-
-            const overlaps = bookingsFiltered.some(b => {
-                return (slotStartStr < b.end && slotEndStr > b.start)
-            })
+            const overlaps = hasTimeConflict(currentSlotUTC, slotEndUTC, bookingsFiltered)
 
             // Break check
             let inBreak = false

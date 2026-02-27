@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { generateInstructorBookingEmail, generateStudentBookingEmail, sendBrevoEmail } from "@/lib/email";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getTimeZoneOffsetMinutesForDate, toUtcDateFromLocal } from "@/lib/timezone";
+import { hasTimeConflict } from "@/lib/time-overlap";
 
 const ADMIN_RESCHEDULE_EMAIL = process.env.ADMIN_RESCHEDULE_EMAIL || "selamdrivingschool@gmail.com";
 
@@ -191,9 +192,7 @@ export async function POST(request: NextRequest) {
             if (slotEndUTC > dayEndLimitUTC) break;
 
             if (isBefore(minNoticeTime, currentSlotUTC)) {
-                const slotStartStr = currentSlotUTC.toISOString();
-                const slotEndStr = slotEndUTC.toISOString();
-                const overlaps = bookingsFiltered.some((b) => slotStartStr < b.end && slotEndStr > b.start);
+                const overlaps = hasTimeConflict(currentSlotUTC, slotEndUTC, bookingsFiltered);
 
                 let inBreak = false;
                 if (instructor.break_start && instructor.break_end) {

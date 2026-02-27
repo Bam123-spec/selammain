@@ -6,6 +6,7 @@ import {
     addHours,
 } from 'date-fns';
 import { getTimeZoneOffsetMinutesForDate, toUtcDateFromLocal } from '@/lib/timezone';
+import { hasTimeConflict } from '@/lib/time-overlap';
 
 export const runtime = 'edge';
 
@@ -112,9 +113,7 @@ export async function GET(req: NextRequest) {
 
             if (isBefore(minNoticeTime, currentSlotUTC)) {
                 // Conflict check
-                const hasConflict = allSessions.some(session => {
-                    return (currentSlotUTC.toISOString() < session.end && slotEndUTC.toISOString() > session.start);
-                });
+                const hasConflict = hasTimeConflict(currentSlotUTC, slotEndUTC, allSessions);
 
                 // Break check
                 let inBreak = false;

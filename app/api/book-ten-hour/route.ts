@@ -3,6 +3,7 @@ import { addMinutes, format, setHours, setMinutes, startOfDay, endOfDay, isBefor
 import { sendBrevoEmail, generateStudentBookingEmail } from "@/lib/email"
 import { supabaseAdmin } from "@/lib/supabase/admin"
 import { getTimeZoneOffsetMinutesForDate, toUtcDateFromLocal } from "@/lib/timezone"
+import { hasTimeConflict } from "@/lib/time-overlap"
 
 // Edge Runtime Config
 export const runtime = 'edge';
@@ -155,12 +156,7 @@ export async function POST(request: NextRequest) {
             const slotEndUTC = addMinutes(currentSlotUTC, durationMinutes)
             if (slotEndUTC > dayEndLimitUTC) break;
 
-            const slotStartStr = currentSlotUTC.toISOString()
-            const slotEndStr = slotEndUTC.toISOString()
-
-            const overlaps = bookings.some(b => {
-                return (slotStartStr < b.end && slotEndStr > b.start)
-            })
+            const overlaps = hasTimeConflict(currentSlotUTC, slotEndUTC, bookings)
 
             if (!overlaps) {
                 slots.push(currentSlotUTC.toISOString())
