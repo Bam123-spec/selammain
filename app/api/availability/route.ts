@@ -1,14 +1,45 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase/admin';
-import {
-    addMinutes,
-    isBefore,
-    addHours,
-} from 'date-fns';
 import { getTimeZoneOffsetMinutesForDate, toUtcDateFromLocal } from '@/lib/timezone';
-import { hasTimeConflict } from '@/lib/time-overlap';
 
 export const runtime = 'edge';
+
+type BusyRange = {
+    startMs: number;
+    endMs: number;
+};
+
+const parseClockTime = (timeStr: string) => {
+    const match = timeStr.match(/(\d+):(\d+)\s*(AM|PM)/i);
+    if (!match) return { hours: 0, mins: 0 };
+    let hours = parseInt(match[1]);
+    const mins = parseInt(match[2]);
+    const period = match[3].toUpperCase();
+    if (period === 'PM' && hours < 12) hours += 12;
+    if (period === 'AM' && hours === 12) hours = 0;
+    return { hours, mins };
+};
+
+const toMillis = (value: unknown) => {
+    if (!value || typeof value !== 'string') return null;
+    const ms = new Date(value).getTime();
+    return Number.isFinite(ms) ? ms : null;
+};
+
+const toBusyRange = (start: unknown, end: unknown): BusyRange | null => {
+    const startMs = toMillis(start);
+    const endMs = toMillis(end);
+    if (startMs == null || endMs == null || endMs <= startMs) return null;
+    return { startMs, endMs };
+};
+
+const hasBusyConflict = (slotStartMs: number, slotEndMs: number, ranges: BusyRange[]) => {
+    for (const range of ranges) {
+        if (range.startMs >= slotEndMs) break;
+        if (slotStartMs < range.endMs && slotEndMs > range.startMs) return true;
+    }
+    return false;
+};
 
 export async function GET(req: NextRequest) {
     try {
@@ -20,10 +51,10 @@ export async function GET(req: NextRequest) {
             return NextResponse.json({ error: 'Missing plan_key or date' }, { status: 400 });
         }
 
-        // 1. Fetch package and instructor rules
+        // 1. Fetch package + instructor configuration (only needed columns)
         const { data: pkg, error: pkgError } = await (supabaseAdmin
             .from('service_packages')
-            .select('instructor_id, duration_minutes, instructors!inner(*)')
+            .select('instructor_id, duration_minutes')
             .eq('plan_key', planKey)
             .single() as any);
 
@@ -32,7 +63,17 @@ export async function GET(req: NextRequest) {
             return NextResponse.json({ error: 'Package not found' }, { status: 404 });
         }
 
-        const instructor: any = pkg.instructors;
+        const { data: instructor, error: instructorError } = await supabaseAdmin
+            .from('instructors')
+            .select('id, is_active, working_days, start_time, end_time, break_start, break_end, min_notice_hours, slot_minutes')
+            .eq('id', pkg.instructor_id)
+            .single();
+
+        if (instructorError || !instructor) {
+            console.error('Instructor fetch error:', instructorError);
+            return NextResponse.json({ slots: [] });
+        }
+
         if (!instructor || !instructor.is_active) {
             return NextResponse.json({ slots: [] });
         }
@@ -76,63 +117,58 @@ export async function GET(req: NextRequest) {
                 .lte('start_time', dayEndUTC)
         ]);
 
-        const allSessions = [
-            ...(drivingSessionsResult.data || []).map(s => ({ start: s.start_time, end: s.end_time })),
-            ...(btwSessionsResult.data || []).map(s => ({ start: s.starts_at, end: s.ends_at })),
-            ...(tenHourSessionsResult.data || []).map(s => ({ start: s.start_time, end: s.end_time }))
-        ];
+        const busyRanges = [
+            ...(drivingSessionsResult.data || []).map((s) => toBusyRange(s.start_time, s.end_time)),
+            ...(btwSessionsResult.data || []).map((s) => toBusyRange(s.starts_at, s.ends_at)),
+            ...(tenHourSessionsResult.data || []).map((s) => toBusyRange(s.start_time, s.end_time))
+        ]
+            .filter((s): s is BusyRange => !!s)
+            .sort((a, b) => a.startMs - b.startMs);
 
         // 4. Generate slots in UTC
         const slots: string[] = [];
-
-        const parseClockTime = (timeStr: string) => {
-            const match = timeStr.match(/(\d+):(\d+)\s*(AM|PM)/i);
-            if (!match) return { hours: 0, mins: 0 };
-            let hours = parseInt(match[1]);
-            const mins = parseInt(match[2]);
-            const period = match[3].toUpperCase();
-            if (period === 'PM' && hours < 12) hours += 12;
-            if (period === 'AM' && hours === 12) hours = 0;
-            return { hours, mins };
-        };
 
         const startRule = parseClockTime(instructor.start_time || '7:00 AM');
         const endRule = parseClockTime(instructor.end_time || '7:00 PM');
 
         // Current point in time being evaluated (In UTC)
-        let currentSlotUTC = toUtcDateFromLocal(year, month, day, startRule.hours, startRule.mins, 0, 'America/New_York');
-        const dayEndLimitUTC = toUtcDateFromLocal(year, month, day, endRule.hours, endRule.mins, 0, 'America/New_York');
+        let currentSlotMs = toUtcDateFromLocal(year, month, day, startRule.hours, startRule.mins, 0, 'America/New_York').getTime();
+        const dayEndLimitMs = toUtcDateFromLocal(year, month, day, endRule.hours, endRule.mins, 0, 'America/New_York').getTime();
+        const slotStepMs = (instructor.slot_minutes || 60) * 60_000;
+        const durationMs = (pkg.duration_minutes || 60) * 60_000;
+        const minNoticeTimeMs = Date.now() + (instructor.min_notice_hours || 12) * 60 * 60 * 1000;
 
-        const minNoticeTime = addHours(new Date(), instructor.min_notice_hours || 12);
-        const durationNeeded = pkg.duration_minutes;
+        let breakStartMs: number | null = null;
+        let breakEndMs: number | null = null;
+        if (instructor.break_start && instructor.break_end) {
+            const bStart = parseClockTime(instructor.break_start);
+            const bEnd = parseClockTime(instructor.break_end);
+            breakStartMs = toUtcDateFromLocal(year, month, day, bStart.hours, bStart.mins, 0, 'America/New_York').getTime();
+            breakEndMs = toUtcDateFromLocal(year, month, day, bEnd.hours, bEnd.mins, 0, 'America/New_York').getTime();
+        }
 
-        while (isBefore(currentSlotUTC, dayEndLimitUTC)) {
-            const slotEndUTC = addMinutes(currentSlotUTC, durationNeeded);
+        while (currentSlotMs < dayEndLimitMs) {
+            const slotEndMs = currentSlotMs + durationMs;
 
-            if (slotEndUTC > dayEndLimitUTC) break;
+            if (slotEndMs > dayEndLimitMs) break;
 
-            if (isBefore(minNoticeTime, currentSlotUTC)) {
+            if (currentSlotMs > minNoticeTimeMs) {
                 // Conflict check
-                const hasConflict = hasTimeConflict(currentSlotUTC, slotEndUTC, allSessions);
+                const hasConflict = hasBusyConflict(currentSlotMs, slotEndMs, busyRanges);
 
                 // Break check
-                let inBreak = false;
-                if (instructor.break_start && instructor.break_end) {
-                    const bStart = parseClockTime(instructor.break_start);
-                    const bEnd = parseClockTime(instructor.break_end);
-                    const breakStartUTC = toUtcDateFromLocal(year, month, day, bStart.hours, bStart.mins, 0, 'America/New_York');
-                    const breakEndUTC = toUtcDateFromLocal(year, month, day, bEnd.hours, bEnd.mins, 0, 'America/New_York');
-                    if (currentSlotUTC < breakEndUTC && breakStartUTC < slotEndUTC) {
-                        inBreak = true;
-                    }
-                }
+                const inBreak =
+                    breakStartMs != null &&
+                    breakEndMs != null &&
+                    currentSlotMs < breakEndMs &&
+                    breakStartMs < slotEndMs;
 
                 if (!hasConflict && !inBreak) {
-                    slots.push(currentSlotUTC.toISOString());
+                    slots.push(new Date(currentSlotMs).toISOString());
                 }
             }
 
-            currentSlotUTC = addMinutes(currentSlotUTC, instructor.slot_minutes || 60);
+            currentSlotMs += slotStepMs;
         }
 
         return NextResponse.json({ slots });
