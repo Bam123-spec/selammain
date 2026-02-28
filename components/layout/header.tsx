@@ -34,7 +34,7 @@ import { supabase } from "@/lib/supabaseClient"
 
 
 export function Header() {
-    const [isScrolled, setIsScrolled] = useState(false)
+    const isScrolled = false
     const [user, setUser] = useState<any>(null)
     const [isServicesOpen, setIsServicesOpen] = useState(false)
     const [isDesktopServicesOpen, setIsDesktopServicesOpen] = useState(false)
@@ -45,11 +45,6 @@ export function Header() {
     const isHomePage = pathname === "/"
 
     useEffect(() => {
-        const handleScroll = () => {
-            setIsScrolled(window.scrollY > 50)
-        }
-        window.addEventListener("scroll", handleScroll)
-
         // Check active session
         const checkUser = async () => {
             const { data: { session } } = await supabase.auth.getSession()
@@ -67,7 +62,6 @@ export function Header() {
         })
 
         return () => {
-            window.removeEventListener("scroll", handleScroll)
             subscription.unsubscribe()
         }
     }, [])
