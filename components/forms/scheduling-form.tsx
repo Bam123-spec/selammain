@@ -82,7 +82,7 @@ const REALTIME_AVAILABILITY_PLANS = [
 
 const AVAILABILITY_CACHE_TTL_MS = 30_000
 const MONTH_PREFETCH_CACHE_TTL_MS = 60_000
-const MONTH_PREFETCH_PLAN_KEY = "driving-practice-1hr"
+const MONTH_PREFETCH_PLANS = new Set<string>(REALTIME_AVAILABILITY_PLANS as readonly string[])
 
 export function SchedulingForm({ defaultPlan }: { defaultPlan?: string }) {
     const searchParams = useSearchParams()
@@ -247,7 +247,7 @@ export function SchedulingForm({ defaultPlan }: { defaultPlan?: string }) {
         monthDate: Date,
         options?: { silent?: boolean }
     ) => {
-        if (planKey !== MONTH_PREFETCH_PLAN_KEY) return null
+        if (!MONTH_PREFETCH_PLANS.has(planKey)) return null
 
         const monthKey = `${planKey}:${format(monthDate, "yyyy-MM")}`
         const monthCached = availabilityMonthCacheRef.current.get(monthKey)
@@ -317,7 +317,7 @@ export function SchedulingForm({ defaultPlan }: { defaultPlan?: string }) {
         const cacheKey = `${planKey}:${dateStr}`
         const shouldUpdateVisibleSlots = options?.updateVisibleSlots !== false
 
-        if (planKey === MONTH_PREFETCH_PLAN_KEY) {
+        if (MONTH_PREFETCH_PLANS.has(planKey)) {
             const monthKey = `${planKey}:${dateStr.slice(0, 7)}`
             const monthRequest = availabilityMonthInFlightRef.current.get(monthKey)
             if (monthRequest) {
@@ -393,7 +393,7 @@ export function SchedulingForm({ defaultPlan }: { defaultPlan?: string }) {
     }, [])
 
     React.useEffect(() => {
-        if (step !== 1 || selectedService !== MONTH_PREFETCH_PLAN_KEY) return
+        if (step !== 1 || !selectedService || !MONTH_PREFETCH_PLANS.has(selectedService)) return
         const monthAnchor = selectedDate || new Date()
         void prefetchAvailabilityMonth(selectedService, monthAnchor, { silent: true })
     }, [step, selectedService, selectedDate, prefetchAvailabilityMonth])
@@ -869,7 +869,7 @@ export function SchedulingForm({ defaultPlan }: { defaultPlan?: string }) {
                                         availableTimes={availableSlots.length > 0 ? availableSlots.map(s => formatTimeDisplay(s)) : []}
                                         onDateChange={(date) => form.setValue("date", date)}
                                         onMonthChange={(monthDate) => {
-                                            if (selectedService === MONTH_PREFETCH_PLAN_KEY) {
+                                            if (selectedService && MONTH_PREFETCH_PLANS.has(selectedService)) {
                                                 void prefetchAvailabilityMonth(selectedService, monthDate, { silent: true })
                                             }
                                         }}

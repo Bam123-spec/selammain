@@ -34,6 +34,53 @@ const HARDCODED_PLAN_RULES: Record<string, HardcodedPlanRule> = {
         // Break window is display-only for this hardcoded plan.
         ignoreBreakWindow: true,
     },
+    "driving-practice-2hr": {
+        instructorId: "510c8aaa-a8d3-43a6-afe2-0af3cd1cf187",
+        durationMinutes: 120,
+        slotMinutes: 120,
+        workingDays: [1, 2, 3, 4, 5, 6, 7], // Mon-Sun
+        startTime: "8:00 AM",
+        endTime: "6:00 PM",
+        minNoticeHours: 12,
+        timezone: "America/New_York",
+        // Break window is display-only for this hardcoded plan.
+        ignoreBreakWindow: true,
+    },
+    "road-test-escort": {
+        instructorId: "0f1331f6-8f01-486b-b99b-69d7b0d82023",
+        durationMinutes: 120,
+        slotMinutes: 60,
+        workingDays: [1, 2, 3, 4, 5, 6], // Mon-Sat
+        startTime: "8:00 AM",
+        endTime: "5:00 PM",
+        minNoticeHours: 12,
+        timezone: "America/New_York",
+        ignoreBreakWindow: false,
+    },
+    "road-test-1hr": {
+        instructorId: "d7bf4096-8999-4875-a16f-80498d7f7b4c",
+        durationMinutes: 150,
+        slotMinutes: 60,
+        workingDays: [1, 2, 3, 4, 5, 6], // Mon-Sat
+        startTime: "7:00 AM",
+        endTime: "7:00 PM",
+        minNoticeHours: 12,
+        timezone: "America/New_York",
+        // Break window is display-only for this plan in current setup.
+        ignoreBreakWindow: true,
+    },
+    "road-test-2hr": {
+        instructorId: "36a849ef-1b8e-4ea8-bdec-f2ed757e61b6",
+        durationMinutes: 210,
+        slotMinutes: 60,
+        workingDays: [1, 2, 3, 4, 5, 6], // Mon-Sat
+        startTime: "7:00 AM",
+        endTime: "7:00 PM",
+        minNoticeHours: 12,
+        timezone: "America/New_York",
+        // Break window is display-only for this plan in current setup.
+        ignoreBreakWindow: true,
+    },
 };
 
 const parseClockTime = (timeStr: string) => {
@@ -324,19 +371,6 @@ export async function GET(req: NextRequest) {
             return NextResponse.json({ slots });
         }
 
-        if (!dateStr) {
-            return NextResponse.json({ error: 'Date is required for this service' }, { status: 400 });
-        }
-
-        const parsedDate = parseDateParts(dateStr);
-        if (!parsedDate) {
-            return NextResponse.json({ error: 'Invalid date' }, { status: 400 });
-        }
-
-        const { year, month, day } = parsedDate;
-        const dateObj = new Date(year, month - 1, day);
-        const dayOfWeek = dateObj.getDay() === 0 ? 7 : dateObj.getDay();
-
         // 1. Fetch package + instructor configuration (only needed columns)
         const { data: pkg, error: pkgError } = await (supabaseAdmin
             .from('service_packages')
@@ -364,18 +398,117 @@ export async function GET(req: NextRequest) {
             return NextResponse.json({ slots: [] });
         }
 
-        // 2. Check if working day (using local date components)
+        const timezone = 'America/New_York';
         const workingDays = (instructor.working_days || []).map((d: any) => {
             const num = Number(d);
             return num === 0 ? 7 : num;
         });
 
+        if (isRangeRequest && dateFrom && dateTo) {
+            const dateKeys = buildDateRangeKeys(dateFrom, dateTo);
+            if (dateKeys.length === 0) {
+                return NextResponse.json({ error: 'Invalid date range' }, { status: 400 });
+            }
+
+            const firstDate = parseDateParts(dateKeys[0]);
+            const lastDate = parseDateParts(dateKeys[dateKeys.length - 1]);
+            if (!firstDate || !lastDate) {
+                return NextResponse.json({ error: 'Invalid date range' }, { status: 400 });
+            }
+
+            const firstOffsetMinutes = getTimeZoneOffsetMinutesForDate(firstDate.year, firstDate.month, firstDate.day, timezone);
+            const lastOffsetMinutes = getTimeZoneOffsetMinutesForDate(lastDate.year, lastDate.month, lastDate.day, timezone);
+            const rangeStartUTC = new Date(Date.UTC(firstDate.year, firstDate.month - 1, firstDate.day, 0, 0, 0) - firstOffsetMinutes * 60000).toISOString();
+            const rangeEndUTC = new Date(Date.UTC(lastDate.year, lastDate.month - 1, lastDate.day, 23, 59, 59) - lastOffsetMinutes * 60000).toISOString();
+
+            const [drivingSessionsResult, btwSessionsResult, tenHourSessionsResult] = await Promise.all([
+                supabaseAdmin.from('driving_sessions')
+                    .select('start_time, end_time')
+                    .eq('instructor_id', instructor.id)
+                    .neq('status', 'cancelled')
+                    .gte('start_time', rangeStartUTC)
+                    .lte('start_time', rangeEndUTC),
+                supabaseAdmin.from('behind_the_wheel_sessions')
+                    .select('starts_at, ends_at')
+                    .eq('instructor_id', instructor.id)
+                    .neq('status', 'cancelled')
+                    .gte('starts_at', rangeStartUTC)
+                    .lte('starts_at', rangeEndUTC),
+                supabaseAdmin.from('ten_hour_package_sessions')
+                    .select('start_time, end_time')
+                    .eq('instructor_id', instructor.id)
+                    .neq('status', 'cancelled')
+                    .gte('start_time', rangeStartUTC)
+                    .lte('start_time', rangeEndUTC)
+            ]);
+
+            const busyByDate = new Map<string, BusyRange[]>();
+            const allRanges = [
+                ...(drivingSessionsResult.data || []).map((s) => toBusyRange(s.start_time, s.end_time)),
+                ...(btwSessionsResult.data || []).map((s) => toBusyRange(s.starts_at, s.ends_at)),
+                ...(tenHourSessionsResult.data || []).map((s) => toBusyRange(s.start_time, s.end_time)),
+            ].filter((s): s is BusyRange => !!s);
+
+            for (const range of allRanges) {
+                const key = localDateKeyFromUtc(new Date(range.startMs), timezone);
+                const list = busyByDate.get(key) || [];
+                list.push(range);
+                busyByDate.set(key, list);
+            }
+
+            const slotsByDate: Record<string, string[]> = {};
+            for (const key of dateKeys) {
+                const parsed = parseDateParts(key);
+                if (!parsed) continue;
+
+                const dateObj = new Date(parsed.year, parsed.month - 1, parsed.day);
+                const dayOfWeek = dateObj.getDay() === 0 ? 7 : dateObj.getDay();
+                if (!workingDays.includes(dayOfWeek)) {
+                    slotsByDate[key] = [];
+                    continue;
+                }
+
+                const busyRanges = (busyByDate.get(key) || []).sort((a, b) => a.startMs - b.startMs);
+                slotsByDate[key] = buildSlots({
+                    year: parsed.year,
+                    month: parsed.month,
+                    day: parsed.day,
+                    startTime: instructor.start_time || '7:00 AM',
+                    endTime: instructor.end_time || '7:00 PM',
+                    slotMinutes: instructor.slot_minutes || 60,
+                    durationMinutes: pkg.duration_minutes || 60,
+                    minNoticeHours: instructor.min_notice_hours || 12,
+                    timezone,
+                    busyRanges,
+                    breakStart: instructor.break_start,
+                    breakEnd: instructor.break_end,
+                    ignoreBreakWindow: false,
+                });
+            }
+
+            return NextResponse.json({ slots_by_date: slotsByDate });
+        }
+
+        if (!dateStr) {
+            return NextResponse.json({ error: 'Date is required for this service' }, { status: 400 });
+        }
+
+        const parsedDate = parseDateParts(dateStr);
+        if (!parsedDate) {
+            return NextResponse.json({ error: 'Invalid date' }, { status: 400 });
+        }
+
+        const { year, month, day } = parsedDate;
+        const dateObj = new Date(year, month - 1, day);
+        const dayOfWeek = dateObj.getDay() === 0 ? 7 : dateObj.getDay();
+
+        // 2. Check if working day (using local date components)
         if (!workingDays.includes(dayOfWeek)) {
             return NextResponse.json({ slots: [] });
         }
 
         // 3. Fetch existing bookings for this instructor on this local day
-        const offsetMinutes = getTimeZoneOffsetMinutesForDate(year, month, day, 'America/New_York');
+        const offsetMinutes = getTimeZoneOffsetMinutesForDate(year, month, day, timezone);
         const dayStartUTC = new Date(Date.UTC(year, month - 1, day, 0, 0, 0) - offsetMinutes * 60000).toISOString();
         const dayEndUTC = new Date(Date.UTC(year, month - 1, day, 23, 59, 59) - offsetMinutes * 60000).toISOString();
 
@@ -418,7 +551,7 @@ export async function GET(req: NextRequest) {
             slotMinutes: instructor.slot_minutes || 60,
             durationMinutes: pkg.duration_minutes || 60,
             minNoticeHours: instructor.min_notice_hours || 12,
-            timezone: 'America/New_York',
+            timezone,
             busyRanges,
             breakStart: instructor.break_start,
             breakEnd: instructor.break_end,
