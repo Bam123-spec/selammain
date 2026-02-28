@@ -54,13 +54,6 @@ export default function DrivingPracticePage() {
 
     const goToPackages = (href: string) => {
         router.push(href)
-
-        // Fallback for rare client-navigation stalls from dropdown selection in production.
-        window.setTimeout(() => {
-            if (window.location.pathname === "/services/driving-practice") {
-                window.location.assign(href)
-            }
-        }, 400)
     }
 
     return (
