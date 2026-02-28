@@ -9,6 +9,33 @@ type BusyRange = {
     endMs: number;
 };
 
+type HardcodedPlanRule = {
+    instructorId: string;
+    durationMinutes: number;
+    slotMinutes: number;
+    workingDays: number[];
+    startTime: string;
+    endTime: string;
+    minNoticeHours: number;
+    timezone: string;
+    ignoreBreakWindow: boolean;
+};
+
+const HARDCODED_PLAN_RULES: Record<string, HardcodedPlanRule> = {
+    "driving-practice-1hr": {
+        instructorId: "23f41f04-3ee4-4c0f-9c79-c9afd26b3593",
+        durationMinutes: 60,
+        slotMinutes: 60,
+        workingDays: [1, 2, 3, 4, 5, 6, 7], // Mon-Sun
+        startTime: "8:00 AM",
+        endTime: "6:00 PM",
+        minNoticeHours: 12,
+        timezone: "America/New_York",
+        // Break window is display-only for this hardcoded plan.
+        ignoreBreakWindow: true,
+    },
+};
+
 const parseClockTime = (timeStr: string) => {
     const match = timeStr.match(/(\d+):(\d+)\s*(AM|PM)/i);
     if (!match) return { hours: 0, mins: 0 };
@@ -41,6 +68,79 @@ const hasBusyConflict = (slotStartMs: number, slotEndMs: number, ranges: BusyRan
     return false;
 };
 
+const buildSlots = (args: {
+    year: number;
+    month: number;
+    day: number;
+    startTime: string;
+    endTime: string;
+    slotMinutes: number;
+    durationMinutes: number;
+    minNoticeHours: number;
+    timezone: string;
+    busyRanges: BusyRange[];
+    breakStart?: string | null;
+    breakEnd?: string | null;
+    ignoreBreakWindow?: boolean;
+}) => {
+    const {
+        year,
+        month,
+        day,
+        startTime,
+        endTime,
+        slotMinutes,
+        durationMinutes,
+        minNoticeHours,
+        timezone,
+        busyRanges,
+        breakStart,
+        breakEnd,
+        ignoreBreakWindow,
+    } = args;
+
+    const slots: string[] = [];
+    const startRule = parseClockTime(startTime);
+    const endRule = parseClockTime(endTime);
+
+    let currentSlotMs = toUtcDateFromLocal(year, month, day, startRule.hours, startRule.mins, 0, timezone).getTime();
+    const dayEndLimitMs = toUtcDateFromLocal(year, month, day, endRule.hours, endRule.mins, 0, timezone).getTime();
+    const slotStepMs = Math.max(slotMinutes || 60, 1) * 60_000;
+    const durationMs = Math.max(durationMinutes || 60, 1) * 60_000;
+    const minNoticeTimeMs = Date.now() + Math.max(minNoticeHours || 0, 0) * 60 * 60 * 1000;
+
+    let breakStartMs: number | null = null;
+    let breakEndMs: number | null = null;
+    if (!ignoreBreakWindow && breakStart && breakEnd) {
+        const bStart = parseClockTime(breakStart);
+        const bEnd = parseClockTime(breakEnd);
+        breakStartMs = toUtcDateFromLocal(year, month, day, bStart.hours, bStart.mins, 0, timezone).getTime();
+        breakEndMs = toUtcDateFromLocal(year, month, day, bEnd.hours, bEnd.mins, 0, timezone).getTime();
+    }
+
+    while (currentSlotMs < dayEndLimitMs) {
+        const slotEndMs = currentSlotMs + durationMs;
+        if (slotEndMs > dayEndLimitMs) break;
+
+        if (currentSlotMs > minNoticeTimeMs) {
+            const hasConflict = hasBusyConflict(currentSlotMs, slotEndMs, busyRanges);
+            const inBreak =
+                breakStartMs != null &&
+                breakEndMs != null &&
+                currentSlotMs < breakEndMs &&
+                breakStartMs < slotEndMs;
+
+            if (!hasConflict && !inBreak) {
+                slots.push(new Date(currentSlotMs).toISOString());
+            }
+        }
+
+        currentSlotMs += slotStepMs;
+    }
+
+    return slots;
+};
+
 export async function GET(req: NextRequest) {
     try {
         const searchParams = req.nextUrl.searchParams;
@@ -49,6 +149,56 @@ export async function GET(req: NextRequest) {
 
         if (!planKey || !dateStr) {
             return NextResponse.json({ error: 'Missing plan_key or date' }, { status: 400 });
+        }
+
+        const [year, month, day] = dateStr.split('-').map(Number);
+        const dateObj = new Date(year, month - 1, day);
+        const dayOfWeek = dateObj.getDay() === 0 ? 7 : dateObj.getDay();
+
+        const hardcodedRule = HARDCODED_PLAN_RULES[planKey];
+        if (hardcodedRule) {
+            if (!hardcodedRule.workingDays.includes(dayOfWeek)) {
+                return NextResponse.json({ slots: [] });
+            }
+
+            const offsetMinutes = getTimeZoneOffsetMinutesForDate(year, month, day, hardcodedRule.timezone);
+            const dayStartUTC = new Date(Date.UTC(year, month - 1, day, 0, 0, 0) - offsetMinutes * 60000).toISOString();
+            const dayEndUTC = new Date(Date.UTC(year, month - 1, day, 23, 59, 59) - offsetMinutes * 60000).toISOString();
+
+            // Fast path: only query already-booked sessions for the dedicated instructor.
+            const { data: takenSessions, error: takenSessionsError } = await supabaseAdmin
+                .from('driving_sessions')
+                .select('start_time, end_time')
+                .eq('instructor_id', hardcodedRule.instructorId)
+                .neq('status', 'cancelled')
+                .gte('start_time', dayStartUTC)
+                .lte('start_time', dayEndUTC);
+
+            if (takenSessionsError) {
+                console.error('Taken sessions fetch error:', takenSessionsError);
+                return NextResponse.json({ error: 'Failed to load availability' }, { status: 500 });
+            }
+
+            const busyRanges = (takenSessions || [])
+                .map((s) => toBusyRange(s.start_time, s.end_time))
+                .filter((s): s is BusyRange => !!s)
+                .sort((a, b) => a.startMs - b.startMs);
+
+            const slots = buildSlots({
+                year,
+                month,
+                day,
+                startTime: hardcodedRule.startTime,
+                endTime: hardcodedRule.endTime,
+                slotMinutes: hardcodedRule.slotMinutes,
+                durationMinutes: hardcodedRule.durationMinutes,
+                minNoticeHours: hardcodedRule.minNoticeHours,
+                timezone: hardcodedRule.timezone,
+                busyRanges,
+                ignoreBreakWindow: hardcodedRule.ignoreBreakWindow,
+            });
+
+            return NextResponse.json({ slots });
         }
 
         // 1. Fetch package + instructor configuration (only needed columns)
@@ -79,9 +229,6 @@ export async function GET(req: NextRequest) {
         }
 
         // 2. Check if working day (using local date components)
-        const [year, month, day] = dateStr.split('-').map(Number);
-        const dateObj = new Date(year, month - 1, day);
-        const dayOfWeek = dateObj.getDay() === 0 ? 7 : dateObj.getDay();
         const workingDays = (instructor.working_days || []).map((d: any) => {
             const num = Number(d);
             return num === 0 ? 7 : num;
@@ -126,50 +273,21 @@ export async function GET(req: NextRequest) {
             .sort((a, b) => a.startMs - b.startMs);
 
         // 4. Generate slots in UTC
-        const slots: string[] = [];
-
-        const startRule = parseClockTime(instructor.start_time || '7:00 AM');
-        const endRule = parseClockTime(instructor.end_time || '7:00 PM');
-
-        // Current point in time being evaluated (In UTC)
-        let currentSlotMs = toUtcDateFromLocal(year, month, day, startRule.hours, startRule.mins, 0, 'America/New_York').getTime();
-        const dayEndLimitMs = toUtcDateFromLocal(year, month, day, endRule.hours, endRule.mins, 0, 'America/New_York').getTime();
-        const slotStepMs = (instructor.slot_minutes || 60) * 60_000;
-        const durationMs = (pkg.duration_minutes || 60) * 60_000;
-        const minNoticeTimeMs = Date.now() + (instructor.min_notice_hours || 12) * 60 * 60 * 1000;
-
-        let breakStartMs: number | null = null;
-        let breakEndMs: number | null = null;
-        if (instructor.break_start && instructor.break_end) {
-            const bStart = parseClockTime(instructor.break_start);
-            const bEnd = parseClockTime(instructor.break_end);
-            breakStartMs = toUtcDateFromLocal(year, month, day, bStart.hours, bStart.mins, 0, 'America/New_York').getTime();
-            breakEndMs = toUtcDateFromLocal(year, month, day, bEnd.hours, bEnd.mins, 0, 'America/New_York').getTime();
-        }
-
-        while (currentSlotMs < dayEndLimitMs) {
-            const slotEndMs = currentSlotMs + durationMs;
-
-            if (slotEndMs > dayEndLimitMs) break;
-
-            if (currentSlotMs > minNoticeTimeMs) {
-                // Conflict check
-                const hasConflict = hasBusyConflict(currentSlotMs, slotEndMs, busyRanges);
-
-                // Break check
-                const inBreak =
-                    breakStartMs != null &&
-                    breakEndMs != null &&
-                    currentSlotMs < breakEndMs &&
-                    breakStartMs < slotEndMs;
-
-                if (!hasConflict && !inBreak) {
-                    slots.push(new Date(currentSlotMs).toISOString());
-                }
-            }
-
-            currentSlotMs += slotStepMs;
-        }
+        const slots = buildSlots({
+            year,
+            month,
+            day,
+            startTime: instructor.start_time || '7:00 AM',
+            endTime: instructor.end_time || '7:00 PM',
+            slotMinutes: instructor.slot_minutes || 60,
+            durationMinutes: pkg.duration_minutes || 60,
+            minNoticeHours: instructor.min_notice_hours || 12,
+            timezone: 'America/New_York',
+            busyRanges,
+            breakStart: instructor.break_start,
+            breakEnd: instructor.break_end,
+            ignoreBreakWindow: false,
+        });
 
         return NextResponse.json({ slots });
     } catch (error: any) {
