@@ -2,12 +2,20 @@ import { type NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
 export async function middleware(request: NextRequest) {
-    // Verifying middleware active
     let response = NextResponse.next({
         request: {
             headers: request.headers,
         },
     });
+
+    const pathname = request.nextUrl.pathname;
+    const publicStudentRoutes = [
+        "/student/login",
+        "/student/signup",
+        "/student/forgot-password",
+        "/student/reset-password",
+        "/student/magic",
+    ];
 
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseKey =
@@ -49,20 +57,18 @@ export async function middleware(request: NextRequest) {
             data: { user },
         } = await supabase.auth.getUser();
 
-        // Protected routes
-        if (request.nextUrl.pathname.startsWith("/student") &&
-            !request.nextUrl.pathname.startsWith("/student/login") &&
-            !request.nextUrl.pathname.startsWith("/student/signup") &&
-            !request.nextUrl.pathname.startsWith("/student/forgot-password") &&
-            !request.nextUrl.pathname.startsWith("/student/reset-password")) {
+        const isPublicStudentRoute = publicStudentRoutes.some((route) => pathname === route || pathname.startsWith(`${route}/`));
+
+        // Protected student routes
+        if (!isPublicStudentRoute) {
             if (!user) {
                 return NextResponse.redirect(new URL("/student/login", request.url));
             }
         }
 
         // Auth routes (redirect if already logged in)
-        if (request.nextUrl.pathname.startsWith("/student/login") ||
-            request.nextUrl.pathname.startsWith("/student/signup")) {
+        if (pathname.startsWith("/student/login") ||
+            pathname.startsWith("/student/signup")) {
             if (user) {
                 return NextResponse.redirect(new URL("/student/dashboard", request.url));
             }
@@ -78,13 +84,6 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
     matcher: [
-        /*
-         * Match all request paths except for the ones starting with:
-         * - _next/static (static files)
-         * - _next/image (image optimization files)
-         * - favicon.ico (favicon file)
-         * Feel free to modify this pattern to include more paths.
-         */
-        "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+        "/student/:path*",
     ],
 };
