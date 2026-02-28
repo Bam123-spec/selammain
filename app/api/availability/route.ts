@@ -60,6 +60,50 @@ const toBusyRange = (start: unknown, end: unknown): BusyRange | null => {
     return { startMs, endMs };
 };
 
+const parseDateParts = (value: string | null) => {
+    if (!value) return null;
+    const [year, month, day] = value.split('-').map(Number);
+    if (!year || !month || !day) return null;
+    return { year, month, day };
+};
+
+const pad2 = (value: number) => String(value).padStart(2, '0');
+
+const formatDateKey = (year: number, month: number, day: number) => {
+    return `${year}-${pad2(month)}-${pad2(day)}`;
+};
+
+const localDateKeyFromUtc = (date: Date, timezone: string) => {
+    const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: timezone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+    }).formatToParts(date);
+
+    const year = Number(parts.find((p) => p.type === 'year')?.value || 0);
+    const month = Number(parts.find((p) => p.type === 'month')?.value || 0);
+    const day = Number(parts.find((p) => p.type === 'day')?.value || 0);
+    return formatDateKey(year, month, day);
+};
+
+const buildDateRangeKeys = (from: string, to: string) => {
+    const start = parseDateParts(from);
+    const end = parseDateParts(to);
+    if (!start || !end) return [] as string[];
+
+    const current = new Date(Date.UTC(start.year, start.month - 1, start.day));
+    const endDate = new Date(Date.UTC(end.year, end.month - 1, end.day));
+    const keys: string[] = [];
+
+    while (current.getTime() <= endDate.getTime()) {
+        keys.push(formatDateKey(current.getUTCFullYear(), current.getUTCMonth() + 1, current.getUTCDate()));
+        current.setUTCDate(current.getUTCDate() + 1);
+    }
+
+    return keys;
+};
+
 const hasBusyConflict = (slotStartMs: number, slotEndMs: number, ranges: BusyRange[]) => {
     for (const range of ranges) {
         if (range.startMs >= slotEndMs) break;
@@ -146,17 +190,96 @@ export async function GET(req: NextRequest) {
         const searchParams = req.nextUrl.searchParams;
         const planKey = searchParams.get('plan_key');
         const dateStr = searchParams.get('date'); // YYYY-MM-DD
+        const dateFrom = searchParams.get('date_from'); // YYYY-MM-DD
+        const dateTo = searchParams.get('date_to'); // YYYY-MM-DD
+        const isRangeRequest = !!dateFrom && !!dateTo;
 
-        if (!planKey || !dateStr) {
-            return NextResponse.json({ error: 'Missing plan_key or date' }, { status: 400 });
+        if (!planKey || (!dateStr && !isRangeRequest)) {
+            return NextResponse.json({ error: 'Missing plan_key and date/date range' }, { status: 400 });
         }
-
-        const [year, month, day] = dateStr.split('-').map(Number);
-        const dateObj = new Date(year, month - 1, day);
-        const dayOfWeek = dateObj.getDay() === 0 ? 7 : dateObj.getDay();
 
         const hardcodedRule = HARDCODED_PLAN_RULES[planKey];
         if (hardcodedRule) {
+            if (isRangeRequest && dateFrom && dateTo) {
+                const dateKeys = buildDateRangeKeys(dateFrom, dateTo);
+                if (dateKeys.length === 0) {
+                    return NextResponse.json({ error: 'Invalid date range' }, { status: 400 });
+                }
+
+                const firstDate = parseDateParts(dateKeys[0]);
+                const lastDate = parseDateParts(dateKeys[dateKeys.length - 1]);
+                if (!firstDate || !lastDate) {
+                    return NextResponse.json({ error: 'Invalid date range' }, { status: 400 });
+                }
+
+                const firstOffsetMinutes = getTimeZoneOffsetMinutesForDate(firstDate.year, firstDate.month, firstDate.day, hardcodedRule.timezone);
+                const lastOffsetMinutes = getTimeZoneOffsetMinutesForDate(lastDate.year, lastDate.month, lastDate.day, hardcodedRule.timezone);
+                const rangeStartUTC = new Date(Date.UTC(firstDate.year, firstDate.month - 1, firstDate.day, 0, 0, 0) - firstOffsetMinutes * 60000).toISOString();
+                const rangeEndUTC = new Date(Date.UTC(lastDate.year, lastDate.month - 1, lastDate.day, 23, 59, 59) - lastOffsetMinutes * 60000).toISOString();
+
+                const { data: takenSessions, error: takenSessionsError } = await supabaseAdmin
+                    .from('driving_sessions')
+                    .select('start_time, end_time')
+                    .eq('instructor_id', hardcodedRule.instructorId)
+                    .neq('status', 'cancelled')
+                    .gte('start_time', rangeStartUTC)
+                    .lte('start_time', rangeEndUTC);
+
+                if (takenSessionsError) {
+                    console.error('Taken sessions range fetch error:', takenSessionsError);
+                    return NextResponse.json({ error: 'Failed to load availability' }, { status: 500 });
+                }
+
+                const busyByDate = new Map<string, BusyRange[]>();
+                for (const session of (takenSessions || [])) {
+                    const range = toBusyRange(session.start_time, session.end_time);
+                    if (!range) continue;
+                    const localDateKey = localDateKeyFromUtc(new Date(range.startMs), hardcodedRule.timezone);
+                    const list = busyByDate.get(localDateKey) || [];
+                    list.push(range);
+                    busyByDate.set(localDateKey, list);
+                }
+
+                const slotsByDate: Record<string, string[]> = {};
+                for (const key of dateKeys) {
+                    const parts = parseDateParts(key);
+                    if (!parts) continue;
+
+                    const dateObj = new Date(parts.year, parts.month - 1, parts.day);
+                    const dayOfWeek = dateObj.getDay() === 0 ? 7 : dateObj.getDay();
+                    if (!hardcodedRule.workingDays.includes(dayOfWeek)) {
+                        slotsByDate[key] = [];
+                        continue;
+                    }
+
+                    const busyRanges = (busyByDate.get(key) || []).sort((a, b) => a.startMs - b.startMs);
+                    slotsByDate[key] = buildSlots({
+                        year: parts.year,
+                        month: parts.month,
+                        day: parts.day,
+                        startTime: hardcodedRule.startTime,
+                        endTime: hardcodedRule.endTime,
+                        slotMinutes: hardcodedRule.slotMinutes,
+                        durationMinutes: hardcodedRule.durationMinutes,
+                        minNoticeHours: hardcodedRule.minNoticeHours,
+                        timezone: hardcodedRule.timezone,
+                        busyRanges,
+                        ignoreBreakWindow: hardcodedRule.ignoreBreakWindow,
+                    });
+                }
+
+                return NextResponse.json({ slots_by_date: slotsByDate });
+            }
+
+            const parsedDate = parseDateParts(dateStr);
+            if (!parsedDate) {
+                return NextResponse.json({ error: 'Invalid date' }, { status: 400 });
+            }
+
+            const { year, month, day } = parsedDate;
+            const dateObj = new Date(year, month - 1, day);
+            const dayOfWeek = dateObj.getDay() === 0 ? 7 : dateObj.getDay();
+
             if (!hardcodedRule.workingDays.includes(dayOfWeek)) {
                 return NextResponse.json({ slots: [] });
             }
@@ -200,6 +323,19 @@ export async function GET(req: NextRequest) {
 
             return NextResponse.json({ slots });
         }
+
+        if (!dateStr) {
+            return NextResponse.json({ error: 'Date is required for this service' }, { status: 400 });
+        }
+
+        const parsedDate = parseDateParts(dateStr);
+        if (!parsedDate) {
+            return NextResponse.json({ error: 'Invalid date' }, { status: 400 });
+        }
+
+        const { year, month, day } = parsedDate;
+        const dateObj = new Date(year, month - 1, day);
+        const dayOfWeek = dateObj.getDay() === 0 ? 7 : dateObj.getDay();
 
         // 1. Fetch package + instructor configuration (only needed columns)
         const { data: pkg, error: pkgError } = await (supabaseAdmin

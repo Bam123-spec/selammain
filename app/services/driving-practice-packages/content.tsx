@@ -1,19 +1,20 @@
 
 "use client"
 
-import { ServicePriceDisplay } from "@/components/shared/service-price-display"
 import { ServicePricingCards } from "@/components/sections/service-pricing-cards"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
 import * as motion from "framer-motion/client"
 import { useSearchParams } from "next/navigation"
-import { useState } from "react"
 
 
 export default function DrivingPracticePackagesContent() {
     const searchParams = useSearchParams()
-    const initialLocation = searchParams.get("location") === "bethesda" ? "bethesda" : "silver-spring"
-    const [location, setLocation] = useState<"silver-spring" | "bethesda">(initialLocation)
+    const location: "silver-spring" | "bethesda" = searchParams.get("location") === "bethesda" ? "bethesda" : "silver-spring"
+    const isBethesda = location === "bethesda"
+    const price1hr = isBethesda ? "75" : "65"
+    const price2hr = isBethesda ? "130" : "120"
+    const price10hr = isBethesda ? "600" : "550"
 
     const getSlug = (baseSlug: string) => {
         return location === "bethesda" ? `${baseSlug}-bethesda` : baseSlug
@@ -68,7 +69,7 @@ export default function DrivingPracticePackagesContent() {
                                 "Quick assessment of driving abilities",
                                 "Instruction in dual-control vehicle"
                             ],
-                            price: <ServicePriceDisplay type="service" identifier={getSlug("driving-practice-1hr")} fallbackPrice={location === 'bethesda' ? "75" : "65"} />,
+                            price: `$${price1hr}`,
                             image: "/driving-school-student-in-car-with-license.jpg",
                             slug: getSlug("driving-practice-1hr"),
                             href: "/booking?plan=driving-practice-1hr"
@@ -81,7 +82,7 @@ export default function DrivingPracticePackagesContent() {
                                 "Practice specific road maneuvers",
                                 "Perfect for road test preparation"
                             ],
-                            price: <ServicePriceDisplay type="service" identifier={getSlug("driving-practice-2hr")} fallbackPrice={location === 'bethesda' ? "130" : "120"} />,
+                            price: `$${price2hr}`,
                             image: "/road-practice.jpg",
 
                             slug: getSlug("driving-practice-2hr"),
@@ -98,7 +99,7 @@ export default function DrivingPracticePackagesContent() {
                                 "Parallel parking instruction",
                                 "Scheduling priority included"
                             ],
-                            price: <ServicePriceDisplay type="service" identifier={getSlug("driving-practice-10hr")} fallbackPrice={location === 'bethesda' ? "600" : "550"} />,
+                            price: `$${price10hr}`,
                             image: "/person-driving-car-instructor-lesson.jpg",
                             slug: getSlug("driving-practice-10hr")
                         }

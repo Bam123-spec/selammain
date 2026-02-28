@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect } from "react"
 import { ChevronLeft, ChevronRight, Calendar } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
 import { cn } from "@/lib/utils"
@@ -9,6 +9,7 @@ import { format } from "date-fns"
 interface DateTimePickerProps {
     onSelect?: (date: Date, time: string) => void
     onDateChange?: (date: Date) => void
+    onMonthChange?: (monthDate: Date) => void
     availableTimes?: string[]
     minDate?: Date
     isLoading?: boolean
@@ -24,6 +25,7 @@ const MONTHS = ["January", "February", "March", "April", "May", "June", "July", 
 export function DateTimePicker({
     onSelect,
     onDateChange,
+    onMonthChange,
     isLoading = false,
     availableTimes = DEFAULT_TIMES,
     minDate = new Date(),
@@ -69,22 +71,32 @@ export function DateTimePicker({
     }, [currentMonth, currentYear])
 
     const navigateMonth = (direction: "prev" | "next") => {
+        let nextMonth = currentMonth
+        let nextYear = currentYear
+
         if (direction === "prev") {
             if (currentMonth === 0) {
-                setCurrentMonth(11)
-                setCurrentYear(currentYear - 1)
+                nextMonth = 11
+                nextYear = currentYear - 1
             } else {
-                setCurrentMonth(currentMonth - 1)
+                nextMonth = currentMonth - 1
             }
         } else {
             if (currentMonth === 11) {
-                setCurrentMonth(0)
-                setCurrentYear(currentYear + 1)
+                nextMonth = 0
+                nextYear = currentYear + 1
             } else {
-                setCurrentMonth(currentMonth + 1)
+                nextMonth = currentMonth + 1
             }
         }
+
+        setCurrentMonth(nextMonth)
+        setCurrentYear(nextYear)
     }
+
+    useEffect(() => {
+        onMonthChange?.(new Date(currentYear, currentMonth, 1))
+    }, [currentMonth, currentYear, onMonthChange])
 
     const isDateDisabled = (day: number) => {
         const date = new Date(currentYear, currentMonth, day)

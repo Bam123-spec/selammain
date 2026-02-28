@@ -4,7 +4,7 @@ import * as React from "react"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
-import { format, addDays, isSameDay, parseISO, addMinutes, parse } from "date-fns"
+import { format, addDays, isSameDay, parseISO, addMinutes, parse, startOfMonth, endOfMonth } from "date-fns"
 import { ChevronLeft, ChevronRight, ChevronDown, CheckCircle2, Loader2, Calendar as CalendarIcon, Clock } from "lucide-react"
 import { useSearchParams, useRouter } from "next/navigation"
 import { loadStripe } from "@stripe/stripe-js"
@@ -81,6 +81,8 @@ const REALTIME_AVAILABILITY_PLANS = [
 ] as const
 
 const AVAILABILITY_CACHE_TTL_MS = 30_000
+const MONTH_PREFETCH_CACHE_TTL_MS = 60_000
+const MONTH_PREFETCH_PLAN_KEY = "driving-practice-1hr"
 
 export function SchedulingForm({ defaultPlan }: { defaultPlan?: string }) {
     const searchParams = useSearchParams()
@@ -139,20 +141,22 @@ export function SchedulingForm({ defaultPlan }: { defaultPlan?: string }) {
     const selectedService = form.watch("service")
     const availabilityCacheRef = React.useRef<Map<string, { slots: string[]; cachedAt: number }>>(new Map())
     const availabilityInFlightRef = React.useRef<Map<string, Promise<string[] | null>>>(new Map())
+    const availabilityMonthCacheRef = React.useRef<Map<string, { cachedAt: number }>>(new Map())
+    const availabilityMonthInFlightRef = React.useRef<Map<string, Promise<Record<string, string[]> | null>>>(new Map())
     const availabilityRequestIdRef = React.useRef(0)
 
     // Fetch instructors and services on mount
     React.useEffect(() => {
         if (isDirectPaidPlan && plan && (DIRECT_PLAN_DEFAULTS as Record<string, any>)[plan]) {
             const fallback = DIRECT_PLAN_DEFAULTS[plan as DirectPaidPlan]
-            setSelectedServiceDetails((prev) => prev || {
+            setSelectedServiceDetails((prev: any) => prev || {
                 id: plan,
                 slug: plan,
                 name: fallback.name,
                 duration_minutes: fallback.duration_minutes,
                 description: "",
             })
-            setPackageDetails((prev) => prev || {
+            setPackageDetails((prev: any) => prev || {
                 plan_key: plan,
                 duration_minutes: fallback.duration_minutes,
                 instructor_id: null,
@@ -238,6 +242,73 @@ export function SchedulingForm({ defaultPlan }: { defaultPlan?: string }) {
         }
     }, [selectedService])
 
+    const prefetchAvailabilityMonth = React.useCallback(async (
+        planKey: string,
+        monthDate: Date,
+        options?: { silent?: boolean }
+    ) => {
+        if (planKey !== MONTH_PREFETCH_PLAN_KEY) return null
+
+        const monthKey = `${planKey}:${format(monthDate, "yyyy-MM")}`
+        const monthCached = availabilityMonthCacheRef.current.get(monthKey)
+        const monthIsFresh = !!monthCached && (Date.now() - monthCached.cachedAt) < MONTH_PREFETCH_CACHE_TTL_MS
+        if (monthIsFresh) return {}
+
+        const existingMonthRequest = availabilityMonthInFlightRef.current.get(monthKey)
+        if (existingMonthRequest) return existingMonthRequest
+
+        const from = format(startOfMonth(monthDate), "yyyy-MM-dd")
+        const to = format(endOfMonth(monthDate), "yyyy-MM-dd")
+
+        const monthPromise = (async () => {
+            try {
+                const response = await fetch(`/api/availability?plan_key=${planKey}&date_from=${from}&date_to=${to}`, {
+                    cache: "no-store",
+                })
+                const data = await response.json().catch(() => ({}))
+
+                if (!response.ok) {
+                    if (!options?.silent) {
+                        console.error("Month availability error:", data?.error || response.status)
+                        toast.error("Failed to load available times.")
+                    }
+                    return null
+                }
+
+                if (data?.slots_by_date && typeof data.slots_by_date === "object") {
+                    const now = Date.now()
+                    for (const [dateStr, slots] of Object.entries(data.slots_by_date as Record<string, unknown>)) {
+                        if (Array.isArray(slots)) {
+                            availabilityCacheRef.current.set(`${planKey}:${dateStr}`, {
+                                slots: slots as string[],
+                                cachedAt: now,
+                            })
+                        }
+                    }
+                    availabilityMonthCacheRef.current.set(monthKey, { cachedAt: now })
+                    return data.slots_by_date as Record<string, string[]>
+                }
+
+                if (!options?.silent) {
+                    console.error("Month availability error:", data?.error || "invalid response")
+                    toast.error("Failed to load available times.")
+                }
+                return null
+            } catch (err) {
+                if (!options?.silent) {
+                    console.error("Month availability fetch error:", err)
+                    toast.error("Network error. Please try again.")
+                }
+                return null
+            } finally {
+                availabilityMonthInFlightRef.current.delete(monthKey)
+            }
+        })()
+
+        availabilityMonthInFlightRef.current.set(monthKey, monthPromise)
+        return monthPromise
+    }, [])
+
     const fetchAvailabilityFor = React.useCallback(async (
         planKey: string,
         dateStr: string,
@@ -245,6 +316,21 @@ export function SchedulingForm({ defaultPlan }: { defaultPlan?: string }) {
     ) => {
         const cacheKey = `${planKey}:${dateStr}`
         const shouldUpdateVisibleSlots = options?.updateVisibleSlots !== false
+
+        if (planKey === MONTH_PREFETCH_PLAN_KEY) {
+            const monthKey = `${planKey}:${dateStr.slice(0, 7)}`
+            const monthRequest = availabilityMonthInFlightRef.current.get(monthKey)
+            if (monthRequest) {
+                await monthRequest
+                const monthCached = availabilityCacheRef.current.get(cacheKey)
+                const isLatestRequest =
+                    options?.requestId == null || options.requestId === availabilityRequestIdRef.current
+                if (monthCached && shouldUpdateVisibleSlots && isLatestRequest) {
+                    setAvailableSlots(monthCached.slots)
+                }
+                if (monthCached) return monthCached.slots
+            }
+        }
 
         const existingRequest = availabilityInFlightRef.current.get(cacheKey)
         if (existingRequest) {
@@ -305,6 +391,12 @@ export function SchedulingForm({ defaultPlan }: { defaultPlan?: string }) {
         availabilityInFlightRef.current.set(cacheKey, requestPromise)
         return requestPromise
     }, [])
+
+    React.useEffect(() => {
+        if (step !== 1 || selectedService !== MONTH_PREFETCH_PLAN_KEY) return
+        const monthAnchor = selectedDate || new Date()
+        void prefetchAvailabilityMonth(selectedService, monthAnchor, { silent: true })
+    }, [step, selectedService, selectedDate, prefetchAvailabilityMonth])
 
     // Fetch real-time availability when date or service changes
     React.useEffect(() => {
@@ -776,6 +868,11 @@ export function SchedulingForm({ defaultPlan }: { defaultPlan?: string }) {
                                         isLoading={isFetchingAvailability}
                                         availableTimes={availableSlots.length > 0 ? availableSlots.map(s => formatTimeDisplay(s)) : []}
                                         onDateChange={(date) => form.setValue("date", date)}
+                                        onMonthChange={(monthDate) => {
+                                            if (selectedService === MONTH_PREFETCH_PLAN_KEY) {
+                                                void prefetchAvailabilityMonth(selectedService, monthDate, { silent: true })
+                                            }
+                                        }}
                                         onSelect={(date, time) => {
                                             const originalSlot = availableSlots.find(s => formatTimeDisplay(s) === time) || time
                                             form.setValue("time", originalSlot)
