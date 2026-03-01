@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server';
 import { sendBrevoEmail } from '@/lib/email';
 
 export const runtime = 'edge';
-const CONTACT_INBOX_EMAIL = process.env.CONTACT_INBOX_EMAIL || 'selamdrivingschool@gmail.com';
+const CONTACT_INBOX_EMAIL = 'beamlaky9@gmail.com';
 
 export async function POST(request: Request) {
     try {
