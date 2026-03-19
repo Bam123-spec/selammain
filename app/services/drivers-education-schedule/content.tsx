@@ -84,7 +84,9 @@ function matchesClassification(session: RawClassSession, classification: DeClass
 }
 
 function defaultPriceFor(classification: DeClassification) {
-    return classification === "weekend" ? 450 : 390
+    if (classification === "weekend") return 450
+    if (classification === "evening") return 390
+    return 400
 }
 
 export default function DriversEducationScheduleContent() {
@@ -114,10 +116,14 @@ export default function DriversEducationScheduleContent() {
                     .filter((session: RawClassSession) => matchesClassification(session, classification))
                     .map((session: RawClassSession): DisplayClassSession => {
                         const numericPrice = Number(session?.price)
+                        const resolvedPrice = classification === "weekend"
+                            ? (Number.isFinite(numericPrice) && numericPrice > 0 ? numericPrice : fallbackPrice)
+                            : fallbackPrice
+
                         return {
                             ...session,
                             name: location === "bethesda" ? `Bethesda ${session?.name || "Driver's Ed"}` : (session?.name || "Driver's Ed"),
-                            price: Number.isFinite(numericPrice) && numericPrice > 0 ? numericPrice : fallbackPrice,
+                            price: resolvedPrice,
                             status: typeof session?.status === "string" ? session.status : "upcoming",
                             time_slot: typeof session?.time_slot === "string" ? session.time_slot : "",
                             daily_start_time: typeof session?.daily_start_time === "string" ? session.daily_start_time : undefined,

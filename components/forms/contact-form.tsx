@@ -17,7 +17,7 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "sonner"
 import { motion } from "framer-motion"
-import { Send } from "lucide-react"
+import { Loader2, Send } from "lucide-react"
 
 const formSchema = z.object({
     name: z.string().min(2, {
@@ -49,6 +49,7 @@ export function ContactForm() {
 
     async function onSubmit(values: z.infer<typeof formSchema>) {
         setIsLoading(true)
+        const loadingToastId = toast.loading("Sending your message...")
         try {
             const response = await fetch('/api/contact', {
                 method: 'POST',
@@ -63,11 +64,13 @@ export function ContactForm() {
             }
 
             toast.success("Message sent successfully!", {
+                id: loadingToastId,
                 description: "We'll get back to you as soon as possible.",
             })
             form.reset()
         } catch (error) {
             toast.error("Something went wrong.", {
+                id: loadingToastId,
                 description: "Please try again later or call us directly.",
             })
         } finally {
@@ -151,12 +154,18 @@ export function ContactForm() {
 
                 <Button
                     type="submit"
+                    disabled={isLoading}
+                    aria-busy={isLoading}
                     className="w-full h-16 rounded-xl bg-black hover:bg-[#FDB813] text-white hover:text-black font-black uppercase tracking-[0.2em] text-xs transition-all relative overflow-hidden group shadow-xl hover:shadow-[#FDB813]/20 active:scale-[0.98]"
                     size="lg"
                 >
                     <span className="relative z-10 flex items-center justify-center gap-3">
-                        Send Secure Message
-                        <Send className="w-4 h-4 group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform" />
+                        {isLoading ? "Sending..." : "Send Secure Message"}
+                        {isLoading ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                            <Send className="w-4 h-4 group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform" />
+                        )}
                     </span>
                     <motion.div
                         className="absolute inset-0 bg-white/20 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-700 skew-x-12"
