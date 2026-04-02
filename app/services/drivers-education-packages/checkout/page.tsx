@@ -119,7 +119,11 @@ export default async function DriversEdCheckoutPage({
 
         return (
             <div className="min-h-screen bg-gray-50 flex flex-col">
-                <ClassCheckoutForm classDetails={enrichedDetails} serviceSlug={serviceSlug} />
+                <ClassCheckoutForm
+                    classDetails={enrichedDetails}
+                    serviceSlug={serviceSlug}
+                    requirePolicyAcceptance={classification === "morning"}
+                />
             </div>
         )
     } catch (error) {

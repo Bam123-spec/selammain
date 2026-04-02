@@ -8,6 +8,7 @@ import Link from "next/link"
 import { useSearchParams } from "next/navigation"
 import { toast } from "sonner"
 import { format, parseISO } from "date-fns"
+import { Checkbox } from "@/components/ui/checkbox"
 
 // Initialize Stripe
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!)
@@ -50,9 +51,11 @@ function formatTimeRange(value: string) {
 export function ClassCheckoutForm({
     classDetails,
     serviceSlug,
+    requirePolicyAcceptance = false,
 }: {
     classDetails: ClassDetails
     serviceSlug?: string
+    requirePolicyAcceptance?: boolean
 }) {
     const searchParams = useSearchParams()
     const location = searchParams.get("location")
@@ -63,6 +66,7 @@ export function ClassCheckoutForm({
 
     const [clientSecret, setClientSecret] = useState<string | null>(null)
     const [loading, setLoading] = useState(true)
+    const [policyAccepted, setPolicyAccepted] = useState(!requirePolicyAcceptance)
     const formatLabel = classDetails.class_type === "DE"
         ? "Online via Zoom"
         : isBethesda
@@ -70,7 +74,15 @@ export function ClassCheckoutForm({
             : "Online & In-Person"
 
     useEffect(() => {
+        if (!policyAccepted) {
+            setClientSecret(null)
+            setLoading(false)
+            return
+        }
+
         const fetchClientSecret = async () => {
+            setLoading(true)
+
             try {
                 const usingServiceSlug = typeof serviceSlug === "string" && serviceSlug.length > 0
                 const endpoint = usingServiceSlug ? "/api/checkout/embedded" : "/api/stripe/create-checkout"
@@ -125,7 +137,7 @@ export function ClassCheckoutForm({
         }
 
         fetchClientSecret()
-    }, [classDetails, isBethesda, location, serviceSlug, studentEmail, studentName, studentPhone])
+    }, [classDetails, isBethesda, location, policyAccepted, serviceSlug, studentEmail, studentName, studentPhone])
 
     return (
         <>
@@ -204,6 +216,45 @@ export function ClassCheckoutForm({
 
                     {/* Checkout Form */}
                     <div className="lg:col-span-3">
+                        {requirePolicyAcceptance && !policyAccepted ? (
+                            <div className="bg-white border border-amber-200 rounded-3xl shadow-sm p-8 md:p-10 mb-6">
+                                <div className="mb-6">
+                                    <p className="text-xs font-black uppercase tracking-[0.2em] text-amber-600 mb-3">Before Payment</p>
+                                    <h3 className="text-2xl font-black text-gray-900 mb-3">Driver&apos;s Ed Morning Cancellation Policy</h3>
+                                    <p className="text-gray-600 leading-relaxed">
+                                        Please review this policy before reserving your seat. Payment should only continue once the student agrees.
+                                    </p>
+                                </div>
+
+                                <div className="rounded-2xl bg-amber-50 border border-amber-100 p-6 space-y-4 text-sm text-gray-700">
+                                    <p>
+                                        Reschedule or cancel <strong>24 hours in advance</strong> through your student portal to avoid fees.
+                                    </p>
+                                    <p>
+                                        Refund requests are generally handled <strong>before the class start date</strong> and depend on timing and circumstances.
+                                    </p>
+                                    <p>
+                                        If you miss part of class, you may need to complete missed classroom units in the next available session.
+                                    </p>
+                                </div>
+
+                                <label className="mt-6 flex items-start gap-3 cursor-pointer">
+                                    <Checkbox
+                                        checked={policyAccepted}
+                                        onCheckedChange={(checked) => setPolicyAccepted(checked === true)}
+                                        className="mt-1 border-gray-300 data-[state=checked]:bg-[#FDB813] data-[state=checked]:border-[#FDB813] data-[state=checked]:text-black"
+                                    />
+                                    <span className="text-sm text-gray-700 leading-relaxed">
+                                        I have read and agree to the cancellation and refund policy for this Driver&apos;s Ed Morning class.
+                                    </span>
+                                </label>
+
+                                <p className="mt-4 text-xs text-gray-500">
+                                    Questions about refunds or rescheduling? <Link href="/contact" className="font-bold text-gray-700 underline underline-offset-2">Contact Selam Driving School</Link>.
+                                </p>
+                            </div>
+                        ) : null}
+
                         <div className="min-h-[400px]">
                             {clientSecret ? (
                                 <EmbeddedCheckoutProvider
@@ -212,6 +263,12 @@ export function ClassCheckoutForm({
                                 >
                                     <EmbeddedCheckout />
                                 </EmbeddedCheckoutProvider>
+                            ) : requirePolicyAcceptance && !policyAccepted ? (
+                                <div className="flex flex-col items-center justify-center py-24 space-y-3 text-center">
+                                    <Shield className="w-10 h-10 text-[#FDB813]" />
+                                    <p className="text-gray-700 font-semibold">Review and accept the policy to continue to payment.</p>
+                                    <p className="text-sm text-gray-400">Stripe checkout will appear here after acknowledgment.</p>
+                                </div>
                             ) : (
                                 <div className="flex flex-col items-center justify-center py-24 space-y-4">
                                     <Loader2 className="w-10 h-10 animate-spin text-[#FDB813]" />
