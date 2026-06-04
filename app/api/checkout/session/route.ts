@@ -258,6 +258,11 @@ async function reconcilePaidSession(session: any) {
     const classTime = safeText(metadata.class_time, 80);
     const planSlug = safeText(metadata.plan_slug, 64);
     const paymentType = safeText(metadata.type, 64).toUpperCase() || "CLASS_ENROLLMENT";
+    const paymentOption = safeText(metadata.payment_option, 20).toLowerCase();
+    const isDepositPayment = paymentOption === "deposit";
+    const totalAmountCents = Number(metadata.total_amount_cents || 0) || null;
+    const dueTodayCents = Number(metadata.due_today_cents || 0) || null;
+    const remainingBalanceCents = Number(metadata.remaining_balance_cents || 0) || null;
 
     const customerEmail =
         safeText(session?.customer_details?.email, 200) ||
@@ -337,6 +342,11 @@ async function reconcilePaidSession(session: any) {
         plan_slug: planSlug || null,
         class_date: classDate || null,
         class_time: classTime || null,
+        payment_option: paymentOption || "full",
+        total_amount_cents: totalAmountCents,
+        due_today_cents: dueTodayCents,
+        remaining_balance_cents: remainingBalanceCents,
+        amount_paid_cents: typeof amountPaid === "number" ? Math.round(amountPaid * 100) : null,
         address: session?.customer_details?.address || null,
     };
 
@@ -344,8 +354,10 @@ async function reconcilePaidSession(session: any) {
 
     if (existingEnrollment) {
         const updatePayload: Record<string, unknown> = {
-            payment_status: "paid",
-            status: existingEnrollment.status === "pending_payment" ? "enrolled" : existingEnrollment.status || "enrolled",
+            payment_status: isDepositPayment ? "partial" : "paid",
+            status: isDepositPayment
+                ? (existingEnrollment.status === "completed" ? "completed" : "pending_payment")
+                : (existingEnrollment.status === "pending_payment" ? "enrolled" : existingEnrollment.status || "enrolled"),
             customer_details: {
                 ...existingCustomerDetails,
                 ...customerDetails,
@@ -378,8 +390,8 @@ async function reconcilePaidSession(session: any) {
             stripe_session_id: sessionId,
             stripe_payment_intent_id: paymentIntentId || null,
             amount_paid: typeof amountPaid === "number" ? amountPaid : null,
-            payment_status: "paid",
-            status: "enrolled",
+            payment_status: isDepositPayment ? "partial" : "paid",
+            status: isDepositPayment ? "pending_payment" : "enrolled",
             customer_details: customerDetails,
             enrolled_at: new Date().toISOString(),
         };
@@ -623,6 +635,10 @@ export async function GET(request: NextRequest) {
             currency: session.currency,
             customer_email: session.customer_details?.email || session.customer_email || null,
             service_slug: sessionServiceSlug,
+            payment_option: session.metadata?.payment_option || null,
+            total_amount_cents: session.metadata?.total_amount_cents ? Number(session.metadata.total_amount_cents) : null,
+            due_today_cents: session.metadata?.due_today_cents ? Number(session.metadata.due_today_cents) : null,
+            remaining_balance_cents: session.metadata?.remaining_balance_cents ? Number(session.metadata.remaining_balance_cents) : null,
             connected_account_id: matchedAccountId,
         },
         reconciliation,

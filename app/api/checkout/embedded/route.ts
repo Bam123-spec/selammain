@@ -7,6 +7,7 @@ export const runtime = "edge";
 
 type EmbeddedCheckoutBody = {
     service_slug?: string;
+    payment_option?: string;
     customer_email?: string;
     class_id?: string;
     class_name?: string;
@@ -52,6 +53,12 @@ function sanitizeReturnPath(value: unknown) {
     return trimmed.slice(0, 500);
 }
 
+function normalizePaymentOption(value: unknown) {
+    if (typeof value !== "string") return "full";
+    const normalized = value.trim().toLowerCase();
+    return normalized === "deposit" ? "deposit" : "full";
+}
+
 export async function POST(request: NextRequest) {
     try {
         let body: EmbeddedCheckoutBody;
@@ -76,7 +83,7 @@ export async function POST(request: NextRequest) {
 
         const { data: serviceOffering, error: serviceError } = await supabaseAdmin
             .from("service_offerings")
-            .select("slug, active, stripe_price_id, connected_account_id")
+            .select("slug, display_name, active, stripe_price_id, connected_account_id, amount_cents, currency")
             .eq("slug", serviceSlug)
             .eq("active", true)
             .maybeSingle();
@@ -91,6 +98,11 @@ export async function POST(request: NextRequest) {
 
         const priceId = serviceOffering.stripe_price_id || "";
         const connectedAccountId = serviceOffering.connected_account_id || "";
+        const paymentOption = normalizePaymentOption(body.payment_option ?? body.metadata?.payment_option);
+        const totalAmountCents = Math.max(0, Number(serviceOffering.amount_cents || 0));
+        const depositAmountCents = Math.min(20000, totalAmountCents || 20000);
+        const remainingBalanceCents = Math.max(totalAmountCents - depositAmountCents, 0);
+        const isEveningDeposit = serviceSlug === "drivers-ed-evening" && paymentOption === "deposit";
 
         if (!priceId || !connectedAccountId) {
             return errorResponse(400, "service_not_configured", "Service checkout is not configured.");
@@ -138,14 +150,26 @@ export async function POST(request: NextRequest) {
         if (studentPhone) metadata.student_phone = studentPhone;
 
         if (body.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata)) {
+            const reservedMetadataKeys = new Set([
+                "payment_option",
+                "total_amount_cents",
+                "due_today_cents",
+                "remaining_balance_cents",
+            ]);
             for (const [rawKey, rawValue] of Object.entries(body.metadata)) {
                 const key = rawKey.trim().slice(0, 40);
                 if (!/^[a-zA-Z0-9_]+$/.test(key)) continue;
+                if (reservedMetadataKeys.has(key)) continue;
                 const value = String(rawValue ?? "").trim().slice(0, 500);
                 if (!value) continue;
                 metadata[key] = value;
             }
         }
+
+        metadata.payment_option = isEveningDeposit ? "deposit" : "full";
+        metadata.total_amount_cents = String(totalAmountCents || 0);
+        metadata.due_today_cents = String(isEveningDeposit ? depositAmountCents : totalAmountCents || 0);
+        metadata.remaining_balance_cents = String(isEveningDeposit ? remainingBalanceCents : 0);
 
         const customerEmail = sanitizeText(body.customer_email, 200);
         const paymentType = String(body?.metadata?.type ?? metadata.type ?? "").trim().toUpperCase();
@@ -158,6 +182,23 @@ export async function POST(request: NextRequest) {
                 return errorResponse(400, "missing_customer_email", "Email is required.");
             }
         }
+
+        const lineItem = isEveningDeposit
+            ? {
+                price_data: {
+                    currency: (serviceOffering.currency || "usd").toLowerCase(),
+                    unit_amount: depositAmountCents,
+                    product_data: {
+                        name: className || serviceOffering.display_name || "Driver's Education",
+                        description: "Initial deposit to reserve your evening class seat.",
+                    },
+                },
+                quantity: 1,
+            }
+            : {
+                price: priceId,
+                quantity: 1,
+            };
 
         const checkoutSession = await stripeFetch(
             "/checkout/sessions",
@@ -184,12 +225,7 @@ export async function POST(request: NextRequest) {
                         optional: false,
                     },
                 ],
-                line_items: [
-                    {
-                        price: priceId,
-                        quantity: 1,
-                    },
-                ],
+                line_items: [lineItem],
                 return_url: returnUrl,
                 ...(customerEmail ? { customer_email: customerEmail } : {}),
                 metadata,

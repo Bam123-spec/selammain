@@ -14,6 +14,10 @@ type SessionPayload = {
         currency: string | null;
         customer_email: string | null;
         service_slug: string | null;
+        payment_option?: string | null;
+        total_amount_cents?: number | null;
+        due_today_cents?: number | null;
+        remaining_balance_cents?: number | null;
     };
 };
 
@@ -116,6 +120,8 @@ export default function CheckoutSuccessPage() {
     const serviceLabel = getServiceLabel(displaySlug);
     const amountDisplay = formatAmount(session?.amount_total ?? null, session?.currency ?? null);
     const showAmount = typeof session?.amount_total === "number" && session.amount_total > 0 && !!amountDisplay;
+    const isDeposit = (session?.payment_option || "").toLowerCase() === "deposit";
+    const remainingBalanceDisplay = formatAmount(session?.remaining_balance_cents ?? null, session?.currency ?? null);
     const returnPath = getReturnPath(displaySlug);
 
     if (loading) {
@@ -178,10 +184,22 @@ export default function CheckoutSuccessPage() {
                             <p className="text-[11px] uppercase tracking-[0.06em] text-gray-500 font-semibold">Payment</p>
                             <p className="font-semibold text-gray-900">{formatPaymentStatus(session.payment_status)}</p>
                         </div>
+                        {session.payment_option && (
+                            <div className="rounded-lg border border-gray-200 bg-white px-3 py-2">
+                                <p className="text-[11px] uppercase tracking-[0.06em] text-gray-500 font-semibold">Payment Option</p>
+                                <p className="font-semibold text-gray-900 capitalize">{session.payment_option}</p>
+                            </div>
+                        )}
                         {showAmount && (
                             <div className="rounded-lg border border-gray-200 bg-white px-3 py-2">
                                 <p className="text-[11px] uppercase tracking-[0.06em] text-gray-500 font-semibold">Amount</p>
                                 <p className="font-semibold text-gray-900">{amountDisplay}</p>
+                            </div>
+                        )}
+                        {isDeposit && remainingBalanceDisplay && (
+                            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 sm:col-span-2">
+                                <p className="text-[11px] uppercase tracking-[0.06em] text-amber-700 font-semibold">Remaining Balance</p>
+                                <p className="font-semibold text-amber-900">{remainingBalanceDisplay} due later</p>
                             </div>
                         )}
                         {session.customer_email && (

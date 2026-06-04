@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react"
 import { loadStripe } from "@stripe/stripe-js"
 import { EmbeddedCheckoutProvider, EmbeddedCheckout } from "@stripe/react-stripe-js"
-import { Loader2, ArrowLeft, Shield, Lock, Calendar, Clock, MapPin } from "lucide-react"
+import { Loader2, ArrowLeft, Shield, Lock, Calendar, Clock, MapPin, CreditCard, BadgeDollarSign } from "lucide-react"
 import Link from "next/link"
 import { useSearchParams } from "next/navigation"
 import { toast } from "sonner"
@@ -63,15 +63,28 @@ export function ClassCheckoutForm({
     const studentEmail = (searchParams.get("email") || searchParams.get("student_email") || "").trim()
     const studentPhone = (searchParams.get("phone") || searchParams.get("student_phone") || "").trim()
     const isBethesda = location === "bethesda"
+    const isEveningDriversEd = serviceSlug === "drivers-ed-evening"
+    const fullAmountCents = Math.max(0, Math.round(Number(classDetails.price || 0) * 100))
+    const depositAmountCents = Math.min(20000, fullAmountCents)
+    const selectedPaymentDefault = isEveningDriversEd ? "deposit" : "full"
 
     const [clientSecret, setClientSecret] = useState<string | null>(null)
     const [loading, setLoading] = useState(true)
     const [policyAccepted, setPolicyAccepted] = useState(!requirePolicyAcceptance)
+    const [paymentOption, setPaymentOption] = useState<"full" | "deposit">(selectedPaymentDefault)
     const formatLabel = classDetails.class_type === "DE"
         ? "Online via Zoom"
         : isBethesda
             ? "Bethesda Location"
             : "Online & In-Person"
+    const selectedAmountCents = paymentOption === "deposit" ? depositAmountCents : fullAmountCents
+    const remainingBalanceCents = Math.max(fullAmountCents - selectedAmountCents, 0)
+
+    const formatCurrency = (valueCents: number) =>
+        new Intl.NumberFormat("en-US", {
+            style: "currency",
+            currency: "USD",
+        }).format(valueCents / 100)
 
     useEffect(() => {
         if (!policyAccepted) {
@@ -82,13 +95,16 @@ export function ClassCheckoutForm({
 
         const fetchClientSecret = async () => {
             setLoading(true)
+            setClientSecret(null)
 
             try {
                 const usingServiceSlug = typeof serviceSlug === "string" && serviceSlug.length > 0
+                const paymentOptionValue = usingServiceSlug && isEveningDriversEd ? paymentOption : "full"
                 const endpoint = usingServiceSlug ? "/api/checkout/embedded" : "/api/stripe/create-checkout"
                 const body = usingServiceSlug
                     ? {
                         service_slug: serviceSlug,
+                        payment_option: paymentOptionValue,
                         class_id: classDetails.id,
                         class_name: isBethesda ? `${classDetails.name} - Bethesda` : classDetails.name,
                         class_date: classDetails.start_date,
@@ -101,6 +117,10 @@ export function ClassCheckoutForm({
                         metadata: {
                             type: "CLASS_ENROLLMENT",
                             class_type: "DE",
+                            payment_option: paymentOptionValue,
+                            total_amount_cents: String(fullAmountCents),
+                            due_today_cents: String(selectedAmountCents),
+                            remaining_balance_cents: String(remainingBalanceCents),
                             class_end_date: classDetails.end_date || "",
                         },
                     }
@@ -130,14 +150,29 @@ export function ClassCheckoutForm({
                 }
             } catch (error) {
                 console.error(error)
-                toast.error("Error creating checkout session")
+                    toast.error("Error creating checkout session")
             } finally {
                 setLoading(false)
             }
         }
 
         fetchClientSecret()
-    }, [classDetails, isBethesda, location, policyAccepted, serviceSlug, studentEmail, studentName, studentPhone])
+    }, [
+        classDetails,
+        depositAmountCents,
+        fullAmountCents,
+        isBethesda,
+        isEveningDriversEd,
+        location,
+        paymentOption,
+        policyAccepted,
+        remainingBalanceCents,
+        selectedAmountCents,
+        serviceSlug,
+        studentEmail,
+        studentName,
+        studentPhone,
+    ])
 
     return (
         <>
@@ -202,14 +237,74 @@ export function ClassCheckoutForm({
                                 </div>
                             </div>
 
+                            {isEveningDriversEd ? (
+                                <div className="pt-6 border-t border-gray-200">
+                                    <p className="font-black uppercase text-xs tracking-wider text-gray-500 mb-3">Payment Option</p>
+                                    <div className="space-y-3">
+                                        <button
+                                            type="button"
+                                            onClick={() => setPaymentOption("full")}
+                                            className={`flex w-full items-start gap-4 border p-4 text-left transition-all ${
+                                                paymentOption === "full"
+                                                    ? "border-gray-900 bg-gray-50 shadow-sm"
+                                                    : "border-gray-200 bg-white hover:border-gray-400"
+                                            }`}
+                                        >
+                                            <div className="flex h-10 w-10 shrink-0 items-center justify-center bg-gray-100">
+                                                <CreditCard className="h-5 w-5 text-gray-700" />
+                                            </div>
+                                            <div className="min-w-0 flex-1">
+                                                <div className="flex items-center justify-between gap-3">
+                                                    <p className="font-black uppercase text-sm tracking-wide text-gray-900">Pay Full</p>
+                                                    <span className="font-black text-xl text-gray-900">{formatCurrency(fullAmountCents)}</span>
+                                                </div>
+                                                <p className="mt-1 text-sm text-gray-500">Pay the full class balance today.</p>
+                                            </div>
+                                        </button>
+
+                                        <button
+                                            type="button"
+                                            onClick={() => setPaymentOption("deposit")}
+                                            className={`flex w-full items-start gap-4 border p-4 text-left transition-all ${
+                                                paymentOption === "deposit"
+                                                    ? "border-[#FDB813] bg-[#fff8df] shadow-sm"
+                                                    : "border-gray-200 bg-white hover:border-gray-400"
+                                            }`}
+                                        >
+                                            <div className="flex h-10 w-10 shrink-0 items-center justify-center bg-[#FDB813]/20">
+                                                <BadgeDollarSign className="h-5 w-5 text-[#b4830e]" />
+                                            </div>
+                                            <div className="min-w-0 flex-1">
+                                                <div className="flex items-center justify-between gap-3">
+                                                    <p className="font-black uppercase text-sm tracking-wide text-gray-900">Pay Deposit</p>
+                                                    <span className="font-black text-xl text-gray-900">{formatCurrency(depositAmountCents)}</span>
+                                                </div>
+                                                <p className="mt-1 text-sm text-gray-500">Reserve your seat with the first payment today.</p>
+                                            </div>
+                                        </button>
+                                    </div>
+                                </div>
+                            ) : null}
+
                             <div className="pt-6 border-t-2 border-gray-200">
-                                <div className="flex justify-between items-center mb-2">
-                                    <span className="font-bold text-gray-600 uppercase text-xs tracking-wider">Total Due</span>
+                                <div className="flex justify-between items-end gap-4">
+                                    <div>
+                                        <span className="font-bold text-gray-600 uppercase text-xs tracking-wider">Due Today</span>
+                                        <p className="mt-1 text-xs text-gray-500">
+                                            {isEveningDriversEd && paymentOption === "deposit"
+                                                ? `${formatCurrency(remainingBalanceCents)} remaining balance due later`
+                                                : "One-time payment • No hidden fees"}
+                                        </p>
+                                    </div>
                                     <span className="font-black text-3xl text-black">
-                                        {classDetails.price_display || `$${Number(classDetails.price || 0).toFixed(2)}`}
+                                        {formatCurrency(selectedAmountCents)}
                                     </span>
                                 </div>
-                                <p className="text-xs text-gray-500 text-right">One-time payment • No hidden fees</p>
+                                {isEveningDriversEd && paymentOption === "deposit" ? (
+                                    <p className="mt-2 text-right text-xs text-gray-500">
+                                        {formatCurrency(remainingBalanceCents)} remaining balance due later
+                                    </p>
+                                ) : null}
                             </div>
                         </div>
                     </div>

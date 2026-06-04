@@ -251,9 +251,15 @@ export async function POST(req: Request) {
         metadataStudentId?: string;
         phone?: string;
         address?: any;
+        paymentOption?: string;
+        totalAmountCents?: number;
+        dueTodayCents?: number;
+        remainingBalanceCents?: number;
     }) {
         console.log(`Processing payment for ${data.studentEmail} (${data.type})`);
         const studentDisplayName = normalizeStudentDisplayName(data.studentName, data.studentEmail);
+        const paymentOption = String(data.paymentOption || "").trim().toLowerCase();
+        const isDepositPayment = paymentOption === "deposit";
 
         // 1. Resolve User (Find or Create)
         let userId = data.metadataStudentId || null;
@@ -330,6 +336,8 @@ export async function POST(req: Request) {
                 }).eq('id', userId);
                 console.log(`Updated 10-hour credits for ${userId} to ${newTotal}`);
             }
+        } else if (isDepositPayment && data.classType === 'DE') {
+            serviceDisplayName = `${serviceDisplayName} (Deposit)`;
         } else if ((data.type === 'DRIVING_PRACTICE_PACKAGE' || data.type === 'ROAD_TEST_PACKAGE') && data.classTime) {
             // Schedule Session Logic
             // Only create driving sessions from checkout-session events (session id required).
@@ -386,13 +394,18 @@ export async function POST(req: Request) {
             stripe_session_id: data.stripeSessionId,
             stripe_payment_intent_id: data.stripePaymentIntentId,
             amount_paid: data.amountPaid,
-            status: 'enrolled',
-            payment_status: 'paid',
+            status: isDepositPayment ? 'pending_payment' : 'enrolled',
+            payment_status: isDepositPayment ? 'partial' : 'paid',
             customer_details: {
                 name: studentDisplayName,
                 email: data.studentEmail,
                 phone: data.phone,
                 service_type: data.type,
+                payment_option: paymentOption || 'full',
+                total_amount_cents: typeof data.totalAmountCents === 'number' ? data.totalAmountCents : null,
+                due_today_cents: typeof data.dueTodayCents === 'number' ? data.dueTodayCents : null,
+                remaining_balance_cents: typeof data.remainingBalanceCents === 'number' ? data.remainingBalanceCents : null,
+                amount_paid_cents: typeof data.amountPaid === 'number' ? Math.round(data.amountPaid * 100) : null,
                 address: data.address
             },
             enrolled_at: new Date().toISOString()
@@ -652,6 +665,10 @@ export async function POST(req: Request) {
                 stripeSessionId: session.id,
                 stripePaymentIntentId: session.payment_intent as string,
                 amountPaid: session.amount_total ? session.amount_total / 100 : 0,
+                paymentOption: typeof meta.payment_option === 'string' ? meta.payment_option : undefined,
+                totalAmountCents: Number(meta.total_amount_cents || 0) || undefined,
+                dueTodayCents: Number(meta.due_today_cents || 0) || undefined,
+                remainingBalanceCents: Number(meta.remaining_balance_cents || 0) || undefined,
                 // If the user was logged in during checkout, we might have their ID in metadata
                 metadataStudentId: meta.student_id,
                 phone: phone || undefined,
@@ -684,6 +701,7 @@ export async function POST(req: Request) {
                         classTime: meta.classTime,
                         stripePaymentIntentId: intent.id,
                         amountPaid: intent.amount_received ? intent.amount_received / 100 : 0,
+                        paymentOption: typeof meta.payment_option === 'string' ? meta.payment_option : undefined,
                         phone: meta.studentPhone
                     });
                 }
