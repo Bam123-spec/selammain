@@ -173,6 +173,16 @@ export async function POST(request: NextRequest) {
 
         const customerEmail = sanitizeText(body.customer_email, 200);
         const paymentType = String(body?.metadata?.type ?? metadata.type ?? "").trim().toUpperCase();
+        const idempotencyKeyParts = [
+            "embedded-checkout",
+            serviceSlug,
+            paymentOption,
+            classId || "",
+            customerEmail.toLowerCase() || "",
+            classDate || "",
+            classTime || "",
+        ].filter(Boolean);
+        const checkoutIdempotencyKey = idempotencyKeyParts.join(":").slice(0, 255);
 
         if (REQUIRE_STUDENT_DETAILS_TYPES.has(paymentType)) {
             if (!studentName) {
@@ -180,6 +190,29 @@ export async function POST(request: NextRequest) {
             }
             if (!customerEmail) {
                 return errorResponse(400, "missing_customer_email", "Email is required.");
+            }
+        }
+
+        if (isEveningDeposit && customerEmail && classId) {
+            const { data: existingDepositRows, error: depositLookupError } = await supabaseAdmin
+                .from("enrollments")
+                .select("id, status, payment_status, stripe_session_id, customer_details")
+                .eq("class_id", classId)
+                .ilike("email", customerEmail)
+                .limit(1);
+
+            if (depositLookupError) {
+                return errorResponse(500, "deposit_lookup_failed", "Unable to verify whether a deposit already exists.");
+            }
+
+            const existingDeposit = existingDepositRows?.[0] as any;
+            const existingPaymentOption = String(existingDeposit?.customer_details?.payment_option || "").toLowerCase();
+            if (existingDeposit && existingPaymentOption === "deposit" && ["partial", "paid"].includes(String(existingDeposit?.payment_status || "").toLowerCase())) {
+                return errorResponse(
+                    409,
+                    "deposit_already_paid",
+                    "A deposit already exists for this student and class."
+                );
             }
         }
 
@@ -200,38 +233,48 @@ export async function POST(request: NextRequest) {
                 quantity: 1,
             };
 
+        const sessionPayload: Record<string, unknown> = {
+            ui_mode: "embedded",
+            mode: "payment",
+            allow_promotion_codes: true,
+            phone_number_collection: {
+                enabled: true,
+            },
+            custom_fields: [
+                {
+                    key: "student_name",
+                    label: {
+                        type: "custom",
+                        custom: "Full Name",
+                    },
+                    type: "text",
+                    text: {
+                        minimum_length: 2,
+                        maximum_length: 120,
+                    },
+                    optional: false,
+                },
+            ],
+            line_items: [lineItem],
+            return_url: returnUrl,
+            ...(customerEmail ? { customer_email: customerEmail } : {}),
+            metadata,
+        };
+
+        if (isEveningDeposit) {
+            sessionPayload.customer_creation = "always";
+            sessionPayload.payment_intent_data = {
+                setup_future_usage: "off_session",
+            };
+        }
+
         const checkoutSession = await stripeFetch(
             "/checkout/sessions",
             "POST",
-            {
-                ui_mode: "embedded",
-                mode: "payment",
-                allow_promotion_codes: true,
-                phone_number_collection: {
-                    enabled: true,
-                },
-                custom_fields: [
-                    {
-                        key: "student_name",
-                        label: {
-                            type: "custom",
-                            custom: "Full Name",
-                        },
-                        type: "text",
-                        text: {
-                            minimum_length: 2,
-                            maximum_length: 120,
-                        },
-                        optional: false,
-                    },
-                ],
-                line_items: [lineItem],
-                return_url: returnUrl,
-                ...(customerEmail ? { customer_email: customerEmail } : {}),
-                metadata,
-            },
+            sessionPayload,
             {
                 stripeAccount: connectedAccountId,
+                idempotencyKey: isEveningDeposit ? checkoutIdempotencyKey : undefined,
             }
         );
 

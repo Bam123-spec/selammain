@@ -263,6 +263,7 @@ async function reconcilePaidSession(session: any) {
     const totalAmountCents = Number(metadata.total_amount_cents || 0) || null;
     const dueTodayCents = Number(metadata.due_today_cents || 0) || null;
     const remainingBalanceCents = Number(metadata.remaining_balance_cents || 0) || null;
+    const stripeCustomerId = safeText(session?.customer, 100);
 
     const customerEmail =
         safeText(session?.customer_details?.email, 200) ||
@@ -347,6 +348,7 @@ async function reconcilePaidSession(session: any) {
         due_today_cents: dueTodayCents,
         remaining_balance_cents: remainingBalanceCents,
         amount_paid_cents: typeof amountPaid === "number" ? Math.round(amountPaid * 100) : null,
+        stripe_customer_id: stripeCustomerId || null,
         address: session?.customer_details?.address || null,
     };
 
@@ -614,6 +616,7 @@ export async function GET(request: NextRequest) {
         return errorResponse(409, "payment_not_completed", "Payment has not completed yet.");
     }
 
+    const stripeCustomerId = safeText(session?.customer, 100);
     let reconciliation: { ok: boolean; actions?: unknown; error_code?: string } | null = null;
     if (shouldReconcile) {
         try {
@@ -639,6 +642,7 @@ export async function GET(request: NextRequest) {
             total_amount_cents: session.metadata?.total_amount_cents ? Number(session.metadata.total_amount_cents) : null,
             due_today_cents: session.metadata?.due_today_cents ? Number(session.metadata.due_today_cents) : null,
             remaining_balance_cents: session.metadata?.remaining_balance_cents ? Number(session.metadata.remaining_balance_cents) : null,
+            stripe_customer_id: stripeCustomerId || null,
             connected_account_id: matchedAccountId,
         },
         reconciliation,

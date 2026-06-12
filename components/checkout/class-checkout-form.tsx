@@ -280,6 +280,7 @@ export function ClassCheckoutForm({
                                                     <span className="font-black text-xl text-gray-900">{formatCurrency(depositAmountCents)}</span>
                                                 </div>
                                                 <p className="mt-1 text-sm text-gray-500">Reserve your seat with the first payment today.</p>
+                                                <p className="mt-1 text-xs text-gray-500">We’ll save this card for the remaining balance due later.</p>
                                             </div>
                                         </button>
                                     </div>

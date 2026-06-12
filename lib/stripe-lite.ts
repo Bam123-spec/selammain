@@ -8,6 +8,7 @@ const STRIPE_API_URL = 'https://api.stripe.com/v1';
 
 type StripeFetchOptions = {
     stripeAccount?: string;
+    idempotencyKey?: string;
 }
 
 // Helper to flatten object into Stripe-compatible form-urlencoded string
@@ -47,6 +48,9 @@ export async function stripeFetch(
     };
     if (options?.stripeAccount) {
         headers['Stripe-Account'] = options.stripeAccount;
+    }
+    if (options?.idempotencyKey) {
+        headers['Idempotency-Key'] = options.idempotencyKey;
     }
 
     const requestOptions: RequestInit = {
