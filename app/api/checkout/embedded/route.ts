@@ -45,7 +45,7 @@ function sanitizeText(value: unknown, maxLength: number) {
     return value.trim().slice(0, maxLength);
 }
 
-async function findOrCreateCustomerId(params: {
+async function createDepositCustomerId(params: {
     stripeAccount: string;
     email: string;
     name: string;
@@ -55,23 +55,6 @@ async function findOrCreateCustomerId(params: {
 }) {
     const { stripeAccount, email, name, phone, serviceSlug, classId } = params;
     const normalizedEmail = email.trim().toLowerCase();
-
-    if (normalizedEmail) {
-        const existingCustomers = await stripeFetch(
-            `/customers?email=${encodeURIComponent(normalizedEmail)}&limit=1`,
-            "GET",
-            undefined,
-            { stripeAccount }
-        );
-
-        const existingCustomerId = typeof existingCustomers?.data?.[0]?.id === "string"
-            ? existingCustomers.data[0].id
-            : "";
-
-        if (existingCustomerId) {
-            return existingCustomerId;
-        }
-    }
 
     const createdCustomer = await stripeFetch(
         "/customers",
@@ -309,7 +292,7 @@ export async function POST(request: NextRequest) {
         };
 
         if (isEveningDeposit) {
-            const eveningCustomerId = await findOrCreateCustomerId({
+            const eveningCustomerId = await createDepositCustomerId({
                 stripeAccount: connectedAccountId,
                 email: customerEmail,
                 name: studentName || className || serviceOffering.display_name || "Driver's Education",
