@@ -209,23 +209,6 @@ export async function POST(request: NextRequest) {
             }
         }
 
-        const lineItem = isEveningDeposit
-            ? {
-                price_data: {
-                    currency: (serviceOffering.currency || "usd").toLowerCase(),
-                    unit_amount: depositAmountCents,
-                    product_data: {
-                        name: className || serviceOffering.display_name || "Driver's Education",
-                        description: "Initial deposit to reserve your evening class seat.",
-                    },
-                },
-                quantity: 1,
-            }
-            : {
-                price: serviceOffering.stripe_price_id,
-                quantity: 1,
-            };
-
         const sessionPayload: Record<string, unknown> = {
             ui_mode: "embedded",
             mode: "payment",
@@ -248,16 +231,40 @@ export async function POST(request: NextRequest) {
                     optional: false,
                 },
             ],
-            line_items: [lineItem],
             return_url: returnUrl,
             ...(customerEmail ? { customer_email: customerEmail } : {}),
-            payment_intent_data: {
-                transfer_data: {
-                    destination: connectedAccountId,
+            ...(isEveningDeposit
+                ? {
+                    line_items: [
+                        {
+                            price_data: {
+                                currency: (serviceOffering.currency || "usd").toLowerCase(),
+                                unit_amount: depositAmountCents,
+                                product_data: {
+                                    name: className || serviceOffering.display_name || "Driver's Education",
+                                    description: "Initial deposit to reserve your evening class seat.",
+                                },
+                            },
+                            quantity: 1,
+                        },
+                    ],
+                    payment_intent_data: {
+                        transfer_data: {
+                            destination: connectedAccountId,
+                        },
+                        setup_future_usage: "off_session",
+                    },
+                    customer_creation: "always",
+                  }
+                : {
+                    line_items: [
+                        {
+                            price: serviceOffering.stripe_price_id,
+                            quantity: 1,
+                        },
+                    ],
                 },
-                ...(isEveningDeposit ? { setup_future_usage: "off_session" } : {}),
-            },
-            ...(isEveningDeposit ? { customer_creation: "always" } : {}),
+            ),
             metadata,
         };
 
@@ -265,7 +272,9 @@ export async function POST(request: NextRequest) {
             "/checkout/sessions",
             "POST",
             sessionPayload,
-            isEveningDeposit ? { idempotencyKey: checkoutIdempotencyKey } : undefined
+            isEveningDeposit
+                ? { idempotencyKey: checkoutIdempotencyKey }
+                : { stripeAccount: connectedAccountId }
         );
 
         if (!checkoutSession?.client_secret) {
