@@ -233,6 +233,11 @@ export async function POST(request: NextRequest) {
             ],
             return_url: returnUrl,
             ...(customerEmail ? { customer_email: customerEmail } : {}),
+            payment_intent_data: {
+                transfer_data: {
+                    destination: connectedAccountId,
+                },
+            },
             ...(isEveningDeposit
                 ? {
                     line_items: [
@@ -272,9 +277,7 @@ export async function POST(request: NextRequest) {
             "/checkout/sessions",
             "POST",
             sessionPayload,
-            isEveningDeposit
-                ? { idempotencyKey: checkoutIdempotencyKey }
-                : { stripeAccount: connectedAccountId }
+            isEveningDeposit ? { idempotencyKey: checkoutIdempotencyKey } : undefined
         );
 
         if (!checkoutSession?.client_secret) {
