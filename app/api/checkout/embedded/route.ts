@@ -45,36 +45,6 @@ function sanitizeText(value: unknown, maxLength: number) {
     return value.trim().slice(0, maxLength);
 }
 
-async function createDepositCustomerId(params: {
-    stripeAccount: string;
-    email: string;
-    name: string;
-    phone: string;
-    serviceSlug: string;
-    classId: string;
-}) {
-    const { stripeAccount, email, name, phone, serviceSlug, classId } = params;
-    const normalizedEmail = email.trim().toLowerCase();
-
-    const createdCustomer = await stripeFetch(
-        "/customers",
-        "POST",
-        {
-            ...(normalizedEmail ? { email: normalizedEmail } : {}),
-            ...(name ? { name } : {}),
-            ...(phone ? { phone } : {}),
-            metadata: {
-                service_slug: serviceSlug,
-                class_id: classId,
-                checkout_flow: "evening_deposit",
-            },
-        },
-        { stripeAccount }
-    );
-
-    return typeof createdCustomer?.id === "string" ? createdCustomer.id : "";
-}
-
 function sanitizeReturnPath(value: unknown) {
     if (typeof value !== "string") return "";
     const trimmed = value.trim();
@@ -291,30 +261,6 @@ export async function POST(request: NextRequest) {
             ...(customerEmail ? { customer_email: customerEmail } : {}),
             metadata,
         };
-
-        if (isEveningDeposit) {
-            const eveningCustomerId = await createDepositCustomerId({
-                stripeAccount: connectedAccountId,
-                email: customerEmail,
-                name: studentName || className || serviceOffering.display_name || "Driver's Education",
-                phone: studentPhone,
-                serviceSlug,
-                classId,
-            });
-
-            if (!eveningCustomerId) {
-                return errorResponse(
-                    502,
-                    "customer_creation_failed",
-                    "Unable to prepare customer profile for deposit checkout."
-                );
-            }
-
-            sessionPayload.customer = eveningCustomerId;
-            sessionPayload.payment_intent_data = {
-                setup_future_usage: "off_session",
-            };
-        }
 
         const checkoutSession = await stripeFetch(
             "/checkout/sessions",
