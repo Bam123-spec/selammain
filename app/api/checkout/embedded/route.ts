@@ -36,10 +36,6 @@ function isValidConnectedAccountId(value: string) {
     return /^acct_[A-Za-z0-9]+$/.test(value);
 }
 
-function isValidPriceId(value: string) {
-    return /^price_[A-Za-z0-9]+$/.test(value);
-}
-
 function sanitizeText(value: unknown, maxLength: number) {
     if (typeof value !== "string") return "";
     return value.trim().slice(0, maxLength);
@@ -97,7 +93,6 @@ export async function POST(request: NextRequest) {
             return errorResponse(404, "service_not_found", "Service not found.");
         }
 
-        const priceId = serviceOffering.stripe_price_id || "";
         const connectedAccountId = serviceOffering.connected_account_id || "";
         const paymentOption = normalizePaymentOption(body.payment_option ?? body.metadata?.payment_option);
         const totalAmountCents = Math.max(0, Number(serviceOffering.amount_cents || 0));
@@ -105,11 +100,8 @@ export async function POST(request: NextRequest) {
         const remainingBalanceCents = Math.max(totalAmountCents - depositAmountCents, 0);
         const isEveningDeposit = serviceSlug === "drivers-ed-evening" && paymentOption === "deposit";
 
-        if (!priceId || !connectedAccountId) {
+        if (!serviceOffering.stripe_price_id || !connectedAccountId) {
             return errorResponse(400, "service_not_configured", "Service checkout is not configured.");
-        }
-        if (!isValidPriceId(priceId)) {
-            return errorResponse(400, "invalid_price_id", "Service has an invalid Stripe price configuration.");
         }
         if (!isValidConnectedAccountId(connectedAccountId)) {
             return errorResponse(
@@ -230,7 +222,7 @@ export async function POST(request: NextRequest) {
                 quantity: 1,
             }
             : {
-                price: priceId,
+                price: serviceOffering.stripe_price_id,
                 quantity: 1,
             };
 
@@ -259,6 +251,13 @@ export async function POST(request: NextRequest) {
             line_items: [lineItem],
             return_url: returnUrl,
             ...(customerEmail ? { customer_email: customerEmail } : {}),
+            payment_intent_data: {
+                transfer_data: {
+                    destination: connectedAccountId,
+                },
+                ...(isEveningDeposit ? { setup_future_usage: "off_session" } : {}),
+            },
+            ...(isEveningDeposit ? { customer_creation: "always" } : {}),
             metadata,
         };
 
@@ -266,10 +265,7 @@ export async function POST(request: NextRequest) {
             "/checkout/sessions",
             "POST",
             sessionPayload,
-            {
-                stripeAccount: connectedAccountId,
-                idempotencyKey: isEveningDeposit ? checkoutIdempotencyKey : undefined,
-            }
+            isEveningDeposit ? { idempotencyKey: checkoutIdempotencyKey } : undefined
         );
 
         if (!checkoutSession?.client_secret) {
