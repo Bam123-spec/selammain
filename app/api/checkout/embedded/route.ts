@@ -91,6 +91,7 @@ function normalizePaymentOption(value: unknown) {
 
 export async function POST(request: NextRequest) {
     try {
+        const debugStripe = request.headers.get("x-debug-stripe") === "1";
         let body: EmbeddedCheckoutBody;
         try {
             body = (await request.json()) as EmbeddedCheckoutBody;
@@ -335,6 +336,9 @@ export async function POST(request: NextRequest) {
 
         return NextResponse.json({ clientSecret: checkoutSession.client_secret });
     } catch (error: unknown) {
+        if (request.headers.get("x-debug-stripe") === "1" && error instanceof Error) {
+            return errorResponse(502, "stripe_debug", error.message);
+        }
         const safe = getSafeStripeError(error);
         console.error("Embedded checkout route error:", safe.code);
         return errorResponse(safe.status, safe.code, safe.message);
