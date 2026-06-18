@@ -9,6 +9,40 @@ export interface EmailPayload {
     sender?: { email: string; name: string };
 }
 
+const ADMIN_NOTIFICATION_EMAILS = new Map<string, string>([
+    ["selamdrivingschool@gmail.com", "Instructor"],
+    ["beamlaky9@gmail.com", "Instructor"],
+]);
+
+function normalizeEmailAddress(value: string) {
+    return value.trim().toLowerCase();
+}
+
+function expandAdminRecipients(recipients: { email: string; name?: string }[]) {
+    const output: { email: string; name?: string }[] = [];
+    const seen = new Set<string>();
+    const shouldExpandToAdminRecipients = recipients.some((recipient) =>
+        ADMIN_NOTIFICATION_EMAILS.has(normalizeEmailAddress(recipient.email))
+    );
+
+    for (const recipient of recipients) {
+        const email = normalizeEmailAddress(recipient.email);
+        if (!email || seen.has(email)) continue;
+        seen.add(email);
+        output.push({ ...recipient, email });
+    }
+
+    if (shouldExpandToAdminRecipients) {
+        for (const [email, name] of ADMIN_NOTIFICATION_EMAILS.entries()) {
+            if (seen.has(email)) continue;
+            seen.add(email);
+            output.push({ email, name });
+        }
+    }
+
+    return output;
+}
+
 async function postBrevoEmail(apiKey: string, body: Record<string, unknown>) {
     const response = await fetch('https://api.brevo.com/v3/smtp/email', {
         method: 'POST',
@@ -47,10 +81,11 @@ export async function sendBrevoEmail(payload: EmailPayload) {
         name: senderName,
         email: senderEmail
     };
+    const recipients = expandAdminRecipients(payload.to);
 
     const requestBody = {
         sender: resolvedSender,
-        to: payload.to,
+        to: recipients,
         subject: payload.subject,
         htmlContent: payload.htmlContent
     };

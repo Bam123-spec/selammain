@@ -470,16 +470,17 @@ async function reconcilePaidSession(session: any) {
         tenHourAction = "updated";
     }
 
+    const serviceDisplayName = resolveServiceDisplayName(
+        safeText(metadata.class_name, 150),
+        paymentType,
+        planSlug,
+        serviceSlug
+    );
+
     if (RECONCILIATION_SEND_CONFIRMATION_EMAIL && customerEmail && !confirmationEmailSentAt) {
         const dashboardUrl = await buildManageBookingUrl(customerEmail, {
             isFirstTimeUser: userCreatedThisPayment,
         });
-        const serviceDisplayName = resolveServiceDisplayName(
-            safeText(metadata.class_name, 150),
-            paymentType,
-            planSlug,
-            serviceSlug
-        );
 
         try {
             const htmlContent = generateStudentBookingEmail({
@@ -498,29 +499,7 @@ async function reconcilePaidSession(session: any) {
                 htmlContent,
             });
 
-            let adminEmailSentAt = "";
-            if (!adminNotificationEmailSentAt) {
-                try {
-                    await sendBrevoEmail({
-                        to: [{ email: "selamdrivingschool@gmail.com", name: "Instructor" }],
-                        subject: `New Booking: ${serviceDisplayName}`,
-                        htmlContent: generateInstructorBookingEmail({
-                            name: customerName || "Student",
-                            email: customerEmail,
-                            phone: customerPhone || undefined,
-                            service: serviceDisplayName,
-                            date: formatDateDisplay(classDate),
-                            time: formatTimeDisplay(classDate, classTime),
-                            dashboardUrl: "#",
-                        }),
-                    });
-                    adminEmailSentAt = new Date().toISOString();
-                } catch (adminEmailError) {
-                    console.error("Reconciliation admin email fallback failed:", adminEmailError);
-                }
-            }
-
-            if (enrollmentId) {
+            if (enrollmentId || emailFlagRowId) {
                 const confirmationSentAt = new Date().toISOString();
                 await supabaseAdmin
                     .from("enrollments")
@@ -529,14 +508,47 @@ async function reconcilePaidSession(session: any) {
                             ...existingCustomerDetails,
                             ...customerDetails,
                             confirmation_email_sent_at: confirmationSentAt,
-                            ...(adminEmailSentAt ? { admin_notification_email_sent_at: adminEmailSentAt } : {}),
                         },
                         updated_at: confirmationSentAt,
                     })
-                    .eq("id", enrollmentId);
+                    .eq("id", enrollmentId || emailFlagRowId);
             }
         } catch (error) {
-            console.error("Reconciliation email fallback failed:", error);
+            console.error("Reconciliation confirmation email fallback failed:", error);
+        }
+    }
+
+    if (!adminNotificationEmailSentAt) {
+        try {
+            await sendBrevoEmail({
+                to: [{ email: "selamdrivingschool@gmail.com", name: "Instructor" }],
+                subject: `New Booking: ${serviceDisplayName}`,
+                htmlContent: generateInstructorBookingEmail({
+                    name: customerName || "Student",
+                    email: customerEmail || "Not provided",
+                    phone: customerPhone || undefined,
+                    service: serviceDisplayName,
+                    date: formatDateDisplay(classDate),
+                    time: formatTimeDisplay(classDate, classTime),
+                    dashboardUrl: "#",
+                }),
+            });
+            if (enrollmentId || emailFlagRowId) {
+                const adminEmailSentAt = new Date().toISOString();
+                await supabaseAdmin
+                    .from("enrollments")
+                    .update({
+                        customer_details: {
+                            ...existingCustomerDetails,
+                            ...customerDetails,
+                            admin_notification_email_sent_at: adminEmailSentAt,
+                        },
+                        updated_at: adminEmailSentAt,
+                    })
+                    .eq("id", enrollmentId || emailFlagRowId);
+            }
+        } catch (adminEmailError) {
+            console.error("Reconciliation admin email fallback failed:", adminEmailError);
         }
     }
 

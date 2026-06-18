@@ -559,7 +559,7 @@ export async function POST(req: Request) {
             });
         }
 
-        if (!confirmationEmailAlreadySent) {
+        if (data.studentEmail && !confirmationEmailAlreadySent) {
             try {
                 await sendBrevoEmail({
                     to: [{ email: data.studentEmail, name: studentDisplayName }],
@@ -585,7 +585,7 @@ export async function POST(req: Request) {
                 console.error('Failed to send student confirmation email:', emailError);
             }
         } else {
-            console.log('Student confirmation email already sent, skipping duplicate.');
+            console.log('Student confirmation email already sent or customer email missing, skipping duplicate.');
         }
 
         if (!adminNotificationEmailAlreadySent) {
@@ -595,7 +595,7 @@ export async function POST(req: Request) {
                     subject: `New Booking: ${serviceDisplayName}`,
                     htmlContent: generateInstructorBookingEmail({
                         name: studentDisplayName,
-                        email: data.studentEmail,
+                        email: data.studentEmail || "Not provided",
                         phone: data.phone,
                         service: serviceDisplayName,
                         date: dateDisp,
@@ -645,14 +645,9 @@ export async function POST(req: Request) {
                 (serviceSlug === 'dip' ? 'DIP' : undefined) ||
                 (serviceSlug === 'rsep' ? 'RSEP' : undefined);
 
-            if (!email) {
-                console.error('No email in session');
-                return new NextResponse('Received (no email)', { status: 200 });
-            }
-
             await handleSuccessfulPayment({
-                studentEmail: email,
-                studentName: normalizeStudentDisplayName(rawName, email),
+                studentEmail: email || "",
+                studentName: normalizeStudentDisplayName(rawName, email || undefined),
                 type: meta.type || 'UNKNOWN',
                 classId: meta.class_id,
                 className: meta.class_name,
@@ -689,22 +684,20 @@ export async function POST(req: Request) {
         if (meta?.type && meta?.processed_by_checkout === 'false') {
             try {
                 // Intents might not have all details, but we try our best
-                const email = meta.studentEmail || meta.email;
-                if (email) {
-                    await handleSuccessfulPayment({
-                        studentEmail: email,
-                        studentName: normalizeStudentDisplayName(meta.studentName, email),
-                        type: meta.type,
-                        classId: meta.classId,
-                        className: meta.className,
-                        classDate: meta.classDate,
-                        classTime: meta.classTime,
-                        stripePaymentIntentId: intent.id,
-                        amountPaid: intent.amount_received ? intent.amount_received / 100 : 0,
-                        paymentOption: typeof meta.payment_option === 'string' ? meta.payment_option : undefined,
-                        phone: meta.studentPhone
-                    });
-                }
+                const email = meta.studentEmail || meta.email || "";
+                await handleSuccessfulPayment({
+                    studentEmail: email,
+                    studentName: normalizeStudentDisplayName(meta.studentName, email || undefined),
+                    type: meta.type,
+                    classId: meta.classId,
+                    className: meta.className,
+                    classDate: meta.classDate,
+                    classTime: meta.classTime,
+                    stripePaymentIntentId: intent.id,
+                    amountPaid: intent.amount_received ? intent.amount_received / 100 : 0,
+                    paymentOption: typeof meta.payment_option === 'string' ? meta.payment_option : undefined,
+                    phone: meta.studentPhone
+                });
             } catch (error: any) {
                 console.error('Intent processing error:', error);
             }
