@@ -55,8 +55,8 @@ async function postBrevoEmail(apiKey: string, body: Record<string, unknown>) {
     });
 
     if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ message: 'Unknown upstream error' }));
-        throw new Error(JSON.stringify(errorData));
+        const errorText = await response.text().catch(() => '');
+        throw new Error(`Brevo API Error: ${response.status} ${errorText || 'Unknown upstream error'}`);
     }
 
     return response.json();

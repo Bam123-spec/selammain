@@ -666,7 +666,12 @@ export async function GET(request: NextRequest) {
             reconciliation = { ok: true, actions };
         } catch (error: unknown) {
             const safe = getSafeStripeError(error);
-            console.error("Checkout session reconciliation error:", safe.code);
+            console.error("Checkout session reconciliation error:", {
+                code: safe.code,
+                message: safe.message,
+                raw: error instanceof Error ? error.message : String(error),
+                stack: error instanceof Error ? error.stack : undefined,
+            });
             reconciliation = { ok: false, error_code: safe.code };
         }
     }
