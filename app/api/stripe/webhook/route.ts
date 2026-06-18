@@ -165,6 +165,40 @@ async function buildManageBookingUrl(siteOrigin: string, email?: string, options
     }
 }
 
+async function resolveCheckoutCustomerEmail(session: any, serviceSlug: string) {
+    const directEmail =
+        safeText(session?.customer_details?.email, 200) ||
+        safeText(session?.customer_email, 200) ||
+        safeText(session?.metadata?.student_email, 200);
+    if (directEmail) return directEmail;
+
+    const customerId = safeText(session?.customer, 200);
+    if (!customerId) return "";
+
+    const { data: serviceOffering, error } = await supabaseAdmin
+        .from("service_offerings")
+        .select("connected_account_id")
+        .eq("slug", serviceSlug)
+        .maybeSingle();
+
+    if (error || !serviceOffering?.connected_account_id || !isValidConnectedAccountId(serviceOffering.connected_account_id)) {
+        return "";
+    }
+
+    try {
+        const customer = await stripeFetch(
+            `/customers/${encodeURIComponent(customerId)}`,
+            "GET",
+            undefined,
+            { stripeAccount: serviceOffering.connected_account_id }
+        );
+        return safeText(customer?.email, 200);
+    } catch (lookupError) {
+        console.error("Checkout customer email lookup failed:", lookupError);
+        return "";
+    }
+}
+
 export async function POST(req: Request) {
     const body = await req.text()
     const headersList = await headers()
@@ -634,11 +668,11 @@ export async function POST(req: Request) {
         const customer = session.customer_details;
 
         try {
-            const email = customer?.email || (session as any).customer_email || meta.student_email;
+            const serviceSlug = typeof meta.service_slug === 'string' ? meta.service_slug : '';
+            const email = await resolveCheckoutCustomerEmail(session, serviceSlug);
             const stripeEnteredName = session.custom_fields?.find((f: any) => f.key === 'student_name')?.text?.value || '';
             const rawName = stripeEnteredName || meta.student_name || customer?.name || '';
             const phone = customer?.phone || meta.student_phone;
-            const serviceSlug = typeof meta.service_slug === 'string' ? meta.service_slug : '';
             const inferredClassType =
                 meta.class_type ||
                 (serviceSlug.startsWith('drivers-ed-') ? 'DE' : undefined) ||

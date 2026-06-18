@@ -171,6 +171,40 @@ async function buildManageBookingUrl(email: string, options?: { isFirstTimeUser?
     }
 }
 
+async function resolveCheckoutCustomerEmail(session: any, serviceSlug: string) {
+    const directEmail =
+        safeText(session?.customer_details?.email, 200) ||
+        safeText(session?.customer_email, 200) ||
+        safeText(session?.metadata?.student_email, 200);
+    if (directEmail) return directEmail;
+
+    const customerId = safeText(session?.customer, 200);
+    if (!customerId) return "";
+
+    const { data: serviceOffering, error } = await supabaseAdmin
+        .from("service_offerings")
+        .select("connected_account_id")
+        .eq("slug", serviceSlug)
+        .maybeSingle();
+
+    if (error || !serviceOffering?.connected_account_id || !isValidConnectedAccountId(serviceOffering.connected_account_id)) {
+        return "";
+    }
+
+    try {
+        const customer = await stripeFetch(
+            `/customers/${encodeURIComponent(customerId)}`,
+            "GET",
+            undefined,
+            { stripeAccount: serviceOffering.connected_account_id }
+        );
+        return safeText(customer?.email, 200);
+    } catch (lookupError) {
+        console.error("Reconciliation customer email lookup failed:", lookupError);
+        return "";
+    }
+}
+
 function resolveDurationMinutes(type: string, planSlug: string) {
     const normalizedType = type.toUpperCase();
     if (normalizedType === "ROAD_TEST_PACKAGE") {
@@ -264,10 +298,7 @@ async function reconcilePaidSession(session: any) {
     const dueTodayCents = Number(metadata.due_today_cents || 0) || null;
     const remainingBalanceCents = Number(metadata.remaining_balance_cents || 0) || null;
 
-    const customerEmail =
-        safeText(session?.customer_details?.email, 200) ||
-        safeText(session?.customer_email, 200) ||
-        safeText(metadata.student_email, 200);
+    const customerEmail = await resolveCheckoutCustomerEmail(session, serviceSlug);
     const stripeEnteredName =
         Array.isArray(session?.custom_fields)
             ? safeText(
