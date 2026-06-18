@@ -59,6 +59,8 @@ function normalizePaymentOption(value: unknown) {
     return normalized === "deposit" ? "deposit" : "full";
 }
 
+const EVENING_DEPOSIT_PRICE_ID = "price_1TjjZXL8QyokIrIEW9Ps1Na8";
+
 export async function POST(request: NextRequest) {
     try {
         let body: EmbeddedCheckoutBody;
@@ -222,14 +224,7 @@ export async function POST(request: NextRequest) {
                 ? {
                     line_items: [
                         {
-                            price_data: {
-                                currency: (serviceOffering.currency || "usd").toLowerCase(),
-                                unit_amount: depositAmountCents,
-                                product_data: {
-                                    name: className || serviceOffering.display_name || "Driver's Education",
-                                    description: "Initial deposit to reserve your evening class seat.",
-                                },
-                            },
+                            price: EVENING_DEPOSIT_PRICE_ID,
                             quantity: 1,
                         },
                     ],
