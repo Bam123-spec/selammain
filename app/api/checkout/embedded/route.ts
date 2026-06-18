@@ -185,17 +185,6 @@ export async function POST(request: NextRequest) {
             }
         }
 
-        const checkoutIdempotencyKeyParts = [
-            "embedded-checkout",
-            serviceSlug,
-            paymentOption,
-            classId || "",
-            customerEmail.toLowerCase() || "",
-            classDate || "",
-            classTime || "",
-        ].filter(Boolean);
-        const checkoutIdempotencyKey = checkoutIdempotencyKeyParts.join(":").slice(0, 255);
-
         const sessionPayload: Record<string, unknown> = {
             ui_mode: "embedded",
             mode: "payment",
@@ -248,9 +237,7 @@ export async function POST(request: NextRequest) {
             "/checkout/sessions",
             "POST",
             sessionPayload,
-            isEveningDeposit
-                ? { stripeAccount: connectedAccountId, idempotencyKey: checkoutIdempotencyKey }
-                : { stripeAccount: connectedAccountId }
+            { stripeAccount: connectedAccountId }
         );
 
         if (!checkoutSession?.client_secret) {
