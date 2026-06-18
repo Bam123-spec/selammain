@@ -4,8 +4,13 @@ import { sendBrevoEmail, generateStudentBookingEmail, generateInstructorBookingE
 
 export const runtime = 'edge';
 
+function noop() {
+    return;
+}
+
 export async function POST(request: Request) {
     console.log("Email API: Request received");
+    noop();
 
     try {
         const body = await request.json();
