@@ -256,6 +256,33 @@ function resolveInstructorId(rawInstructorId: unknown, planSlug: string) {
     return null;
 }
 
+function describeError(error: unknown) {
+    if (error instanceof Error) {
+        return {
+            name: error.name,
+            message: error.message,
+            stack: error.stack,
+        };
+    }
+
+    if (error && typeof error === "object") {
+        try {
+            return JSON.parse(JSON.stringify(error));
+        } catch {
+            return {
+                type: "object",
+                keys: Object.keys(error as Record<string, unknown>),
+                value: String(error),
+            };
+        }
+    }
+
+    return {
+        type: typeof error,
+        value: String(error),
+    };
+}
+
 async function getCandidateOfferings(requestedServiceSlug: string | null) {
     let query = supabaseAdmin
         .from("service_offerings")
@@ -669,8 +696,7 @@ export async function GET(request: NextRequest) {
             console.error("Checkout session reconciliation error:", {
                 code: safe.code,
                 message: safe.message,
-                raw: error instanceof Error ? error.message : String(error),
-                stack: error instanceof Error ? error.stack : undefined,
+                raw: describeError(error),
             });
             reconciliation = { ok: false, error_code: safe.code };
         }
