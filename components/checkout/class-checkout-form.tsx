@@ -9,6 +9,7 @@ import { useSearchParams } from "next/navigation"
 import { toast } from "sonner"
 import { format, parseISO } from "date-fns"
 import { Checkbox } from "@/components/ui/checkbox"
+import { supabase } from "@/lib/supabaseClient"
 
 // Initialize Stripe
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!)
@@ -72,6 +73,13 @@ export function ClassCheckoutForm({
     const [loading, setLoading] = useState(true)
     const [policyAccepted, setPolicyAccepted] = useState(!requirePolicyAcceptance)
     const [paymentOption, setPaymentOption] = useState<"full" | "deposit">(selectedPaymentDefault)
+    const [hydratedIdentity, setHydratedIdentity] = useState(false)
+    const [identityFallback, setIdentityFallback] = useState({
+        id: "",
+        email: "",
+        name: "",
+        phone: "",
+    })
     const formatLabel = classDetails.class_type === "DE"
         ? "Online via Zoom"
         : isBethesda
@@ -79,6 +87,10 @@ export function ClassCheckoutForm({
             : "Online & In-Person"
     const selectedAmountCents = paymentOption === "deposit" ? depositAmountCents : fullAmountCents
     const remainingBalanceCents = Math.max(fullAmountCents - selectedAmountCents, 0)
+    const resolvedStudentId = identityFallback.id
+    const resolvedStudentEmail = studentEmail || identityFallback.email
+    const resolvedStudentName = studentName || identityFallback.name
+    const resolvedStudentPhone = studentPhone || identityFallback.phone
 
     const formatCurrency = (valueCents: number) =>
         new Intl.NumberFormat("en-US", {
@@ -87,9 +99,74 @@ export function ClassCheckoutForm({
         }).format(valueCents / 100)
 
     useEffect(() => {
+        let cancelled = false
+
+        const loadIdentityFallback = async () => {
+            try {
+                const { data: { user } } = await supabase.auth.getUser()
+                if (cancelled) return
+
+                if (!user) {
+                    setIdentityFallback({ id: "", email: "", name: "", phone: "" })
+                    return
+                }
+
+                let fallbackName =
+                    (typeof user.user_metadata?.full_name === "string" && user.user_metadata.full_name.trim()) ||
+                    (typeof user.user_metadata?.name === "string" && user.user_metadata.name.trim()) ||
+                    ""
+                let fallbackPhone = ""
+
+                try {
+                    const { data: profile } = await supabase
+                        .from("profiles")
+                        .select("full_name, phone")
+                        .eq("id", user.id)
+                        .maybeSingle()
+
+                    if (!cancelled && profile) {
+                        fallbackName = (typeof profile.full_name === "string" && profile.full_name.trim()) || fallbackName
+                        fallbackPhone = (typeof profile.phone === "string" && profile.phone.trim()) || fallbackPhone
+                    }
+                } catch (profileError) {
+                    console.error("Failed to load checkout profile fallback:", profileError)
+                }
+
+                if (cancelled) return
+
+                setIdentityFallback({
+                    id: user.id,
+                    email: user.email || "",
+                    name: fallbackName,
+                    phone: fallbackPhone,
+                })
+            } catch (error) {
+                console.error("Failed to hydrate checkout identity:", error)
+                if (!cancelled) {
+                    setIdentityFallback({ id: "", email: "", name: "", phone: "" })
+                }
+            } finally {
+                if (!cancelled) {
+                    setHydratedIdentity(true)
+                }
+            }
+        }
+
+        loadIdentityFallback()
+
+        return () => {
+            cancelled = true
+        }
+    }, [])
+
+    useEffect(() => {
         if (!policyAccepted) {
             setClientSecret(null)
             setLoading(false)
+            return
+        }
+
+        if (serviceSlug && !hydratedIdentity) {
             return
         }
 
@@ -110,9 +187,9 @@ export function ClassCheckoutForm({
                         class_date: classDetails.start_date,
                         class_time: classDetails.time_slot,
                         location: location || "silver-spring",
-                        customer_email: studentEmail || undefined,
-                        student_name: studentName || undefined,
-                        student_phone: studentPhone || undefined,
+                        customer_email: resolvedStudentEmail || undefined,
+                        student_name: resolvedStudentName || undefined,
+                        student_phone: resolvedStudentPhone || undefined,
                         return_path: `/checkout/success?service_slug=${encodeURIComponent(serviceSlug)}`,
                         metadata: {
                             type: "CLASS_ENROLLMENT",
@@ -122,6 +199,7 @@ export function ClassCheckoutForm({
                             due_today_cents: String(selectedAmountCents),
                             remaining_balance_cents: String(remainingBalanceCents),
                             class_end_date: classDetails.end_date || "",
+                            ...(resolvedStudentId ? { student_id: resolvedStudentId } : {}),
                         },
                     }
                     : {
@@ -164,13 +242,16 @@ export function ClassCheckoutForm({
         isBethesda,
         isEveningDriversEd,
         location,
+        hydratedIdentity,
         paymentOption,
         policyAccepted,
         remainingBalanceCents,
         selectedAmountCents,
         serviceSlug,
-        studentName,
-        studentPhone,
+        resolvedStudentEmail,
+        resolvedStudentId,
+        resolvedStudentName,
+        resolvedStudentPhone,
     ])
 
     return (
