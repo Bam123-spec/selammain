@@ -10,7 +10,6 @@ export interface EmailPayload {
 }
 
 const ADMIN_NOTIFICATION_EMAILS = new Map<string, string>([
-    ["selamdrivingschool@gmail.com", "Instructor"],
     ["beamlaky9@gmail.com", "Instructor"],
 ]);
 
