@@ -183,56 +183,79 @@ export async function POST(request: NextRequest) {
             }
         }
 
-        const lineItem = isEveningDeposit
-            ? {
-                price_data: {
-                    currency: (serviceOffering.currency || "usd").toLowerCase(),
-                    unit_amount: depositAmountCents,
-                    product_data: {
-                        name: className || serviceOffering.display_name || "Driver's Education",
-                        description: "Initial deposit to reserve your evening class seat.",
+        const checkoutIdempotencyKeyParts = [
+            "embedded-checkout",
+            serviceSlug,
+            paymentOption,
+            classId || "",
+            customerEmail.toLowerCase() || "",
+            classDate || "",
+            classTime || "",
+        ].filter(Boolean);
+        const checkoutIdempotencyKey = checkoutIdempotencyKeyParts.join(":").slice(0, 255);
+
+        const sessionPayload: Record<string, unknown> = {
+            ui_mode: "embedded",
+            mode: "payment",
+            allow_promotion_codes: true,
+            phone_number_collection: {
+                enabled: true,
+            },
+            custom_fields: [
+                {
+                    key: "student_name",
+                    label: {
+                        type: "custom",
+                        custom: "Full Name",
                     },
+                    type: "text",
+                    text: {
+                        minimum_length: 2,
+                        maximum_length: 120,
+                    },
+                    optional: false,
                 },
-                quantity: 1,
-            }
-            : {
-                price: priceId,
-                quantity: 1,
-            };
+            ],
+            return_url: returnUrl,
+            ...(customerEmail ? { customer_email: customerEmail } : {}),
+            ...(isEveningDeposit
+                ? {
+                    line_items: [
+                        {
+                            price_data: {
+                                currency: (serviceOffering.currency || "usd").toLowerCase(),
+                                unit_amount: depositAmountCents,
+                                product_data: {
+                                    name: className || serviceOffering.display_name || "Driver's Education",
+                                    description: "Initial deposit to reserve your evening class seat.",
+                                },
+                            },
+                            quantity: 1,
+                        },
+                    ],
+                    payment_intent_data: {
+                        setup_future_usage: "off_session",
+                    },
+                    customer_creation: "always",
+                }
+                : {
+                    line_items: [
+                        {
+                            price: priceId,
+                            quantity: 1,
+                        },
+                    ],
+                }),
+            metadata,
+        };
 
         const checkoutSession = await stripeFetch(
             "/checkout/sessions",
             "POST",
-            {
-                ui_mode: "embedded",
-                mode: "payment",
-                allow_promotion_codes: true,
-                phone_number_collection: {
-                    enabled: true,
-                },
-                custom_fields: [
-                    {
-                        key: "student_name",
-                        label: {
-                            type: "custom",
-                            custom: "Full Name",
-                        },
-                        type: "text",
-                        text: {
-                            minimum_length: 2,
-                            maximum_length: 120,
-                        },
-                        optional: false,
-                    },
-                ],
-                line_items: [lineItem],
-                return_url: returnUrl,
-                ...(customerEmail ? { customer_email: customerEmail } : {}),
-                metadata,
-            },
-            {
-                stripeAccount: connectedAccountId,
-            }
+            sessionPayload,
+            isEveningDeposit
+                ? { stripeAccount: connectedAccountId, idempotencyKey: checkoutIdempotencyKey }
+                : { stripeAccount: connectedAccountId }
         );
 
         if (!checkoutSession?.client_secret) {
