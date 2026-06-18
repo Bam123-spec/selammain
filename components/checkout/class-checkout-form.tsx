@@ -9,8 +9,6 @@ import { useSearchParams } from "next/navigation"
 import { toast } from "sonner"
 import { format, parseISO } from "date-fns"
 import { Checkbox } from "@/components/ui/checkbox"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 
 // Initialize Stripe
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!)
@@ -74,8 +72,6 @@ export function ClassCheckoutForm({
     const [loading, setLoading] = useState(true)
     const [policyAccepted, setPolicyAccepted] = useState(!requirePolicyAcceptance)
     const [paymentOption, setPaymentOption] = useState<"full" | "deposit">(selectedPaymentDefault)
-    const [payerEmail, setPayerEmail] = useState(studentEmail)
-    const [emailConfirmed, setEmailConfirmed] = useState(Boolean(studentEmail))
     const formatLabel = classDetails.class_type === "DE"
         ? "Online via Zoom"
         : isBethesda
@@ -92,13 +88,6 @@ export function ClassCheckoutForm({
 
     useEffect(() => {
         if (!policyAccepted) {
-            setClientSecret(null)
-            setLoading(false)
-            return
-        }
-
-        const emailToUse = emailConfirmed ? payerEmail.trim() : ""
-        if (!emailToUse) {
             setClientSecret(null)
             setLoading(false)
             return
@@ -121,7 +110,7 @@ export function ClassCheckoutForm({
                         class_date: classDetails.start_date,
                         class_time: classDetails.time_slot,
                         location: location || "silver-spring",
-                        customer_email: emailToUse || undefined,
+                        customer_email: studentEmail || undefined,
                         student_name: studentName || undefined,
                         student_phone: studentPhone || undefined,
                         return_path: `/checkout/success?service_slug=${encodeURIComponent(serviceSlug)}`,
@@ -182,8 +171,6 @@ export function ClassCheckoutForm({
         serviceSlug,
         studentName,
         studentPhone,
-        emailConfirmed,
-        payerEmail,
     ])
 
     return (
@@ -362,46 +349,8 @@ export function ClassCheckoutForm({
                             </div>
                         ) : null}
 
-                        {!emailConfirmed ? (
-                            <div className="bg-white border border-gray-200 rounded-3xl shadow-sm p-6 mb-6">
-                                <p className="font-black uppercase text-xs tracking-wider text-gray-500 mb-2">Receipt Email</p>
-                                <p className="text-sm text-gray-600 mb-4">
-                                    Enter the email address that should receive the booking confirmation.
-                                </p>
-                                <div className="flex flex-col sm:flex-row gap-3">
-                                    <Input
-                                        type="email"
-                                        value={payerEmail}
-                                        onChange={(e) => setPayerEmail(e.target.value)}
-                                        placeholder="name@example.com"
-                                        className="h-11"
-                                    />
-                                    <Button
-                                        type="button"
-                                        onClick={() => {
-                                            const normalized = payerEmail.trim()
-                                            if (!normalized || !/^\S+@\S+\.\S+$/.test(normalized)) {
-                                                toast.error("Enter a valid email address.")
-                                                return
-                                            }
-                                            setEmailConfirmed(true)
-                                        }}
-                                        className="h-11 bg-[#FDB813] text-black hover:bg-[#e5a700] font-bold"
-                                    >
-                                        Continue
-                                    </Button>
-                                </div>
-                            </div>
-                        ) : null}
-
                         <div className="min-h-[400px]">
-                            {!emailConfirmed ? (
-                                <div className="flex flex-col items-center justify-center py-24 space-y-3 text-center">
-                                    <Shield className="w-10 h-10 text-[#FDB813]" />
-                                    <p className="text-gray-700 font-semibold">Enter a receipt email to continue to payment.</p>
-                                    <p className="text-sm text-gray-400">Stripe checkout will appear here after the email is confirmed.</p>
-                                </div>
-                            ) : clientSecret ? (
+                            {clientSecret ? (
                                 <EmbeddedCheckoutProvider
                                     stripe={stripePromise}
                                     options={{ clientSecret }}
