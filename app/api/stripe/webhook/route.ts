@@ -2,7 +2,7 @@ import { headers } from 'next/headers'
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { sendBrevoEmail, generateStudentBookingEmail, generateInstructorBookingEmail, generateGoogleCalendarUrl, generateDriversEdBookingEmail, generateRsepDipBookingEmail } from '@/lib/email'
-import { verifyStripeWebhook } from '@/lib/stripe-lite';
+import { stripeFetch, verifyStripeWebhook } from '@/lib/stripe-lite';
 
 export const runtime = 'edge';
 
@@ -19,6 +19,15 @@ const DEFAULT_ROAD_TEST_2HR_INSTRUCTOR_ID =
 
 function isUuid(value: string) {
     return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function isValidConnectedAccountId(value: string) {
+    return /^acct_[A-Za-z0-9]+$/.test(value);
+}
+
+function safeText(value: unknown, maxLength: number) {
+    if (typeof value !== "string") return "";
+    return value.trim().slice(0, maxLength);
 }
 
 function friendlyNameFromEmail(email?: string) {

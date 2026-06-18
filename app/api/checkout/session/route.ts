@@ -320,6 +320,7 @@ async function reconcilePaidSession(session: any) {
         userId = "";
     }
     let userCreatedThisPayment = false;
+    let emailFlagRowId = "";
     if (!userId && customerEmail) {
         userId = (await lookupUserIdByEmail(customerEmail)) || "";
     }
@@ -356,6 +357,7 @@ async function reconcilePaidSession(session: any) {
 
     const existingEnrollment = existingRows && existingRows.length > 0 ? existingRows[0] : null;
     let enrollmentAction: "created" | "updated" | "noop" = "noop";
+    emailFlagRowId = existingEnrollment?.id || "";
     const existingCustomerDetails = ((existingEnrollment as any)?.customer_details || {}) as Record<string, unknown>;
     const customerName = normalizeCustomerDisplayName(
         rawCustomerName || safeText(existingCustomerDetails?.name, 120),
