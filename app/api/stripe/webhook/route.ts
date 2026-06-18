@@ -438,7 +438,7 @@ export async function POST(req: Request) {
             stripe_payment_intent_id: data.stripePaymentIntentId,
             amount_paid: data.amountPaid,
             status: isDepositPayment ? 'pending_payment' : 'enrolled',
-            payment_status: isDepositPayment ? 'partial' : 'paid',
+            payment_status: 'paid',
             customer_details: {
                 name: studentDisplayName,
                 email: data.studentEmail,

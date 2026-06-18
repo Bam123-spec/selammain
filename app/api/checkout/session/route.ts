@@ -414,7 +414,7 @@ async function reconcilePaidSession(session: any) {
 
     if (existingEnrollment) {
         const updatePayload: Record<string, unknown> = {
-            payment_status: isDepositPayment ? "partial" : "paid",
+            payment_status: "paid",
             status: isDepositPayment
                 ? (existingEnrollment.status === "completed" ? "completed" : "pending_payment")
                 : (existingEnrollment.status === "pending_payment" ? "enrolled" : existingEnrollment.status || "enrolled"),
@@ -450,7 +450,7 @@ async function reconcilePaidSession(session: any) {
             stripe_session_id: sessionId,
             stripe_payment_intent_id: paymentIntentId || null,
             amount_paid: typeof amountPaid === "number" ? amountPaid : null,
-            payment_status: isDepositPayment ? "partial" : "paid",
+            payment_status: "paid",
             status: isDepositPayment ? "pending_payment" : "enrolled",
             customer_details: customerDetails,
             enrolled_at: new Date().toISOString(),
