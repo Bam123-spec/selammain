@@ -10,7 +10,7 @@ export interface EmailPayload {
 }
 
 const ADMIN_NOTIFICATION_EMAILS = new Map<string, string>([
-    ["beamlaky9@gmail.com", "Instructor"],
+    ["selamdrivingschool@gmail.com", "Instructor"],
 ]);
 
 function normalizeEmailAddress(value: string) {

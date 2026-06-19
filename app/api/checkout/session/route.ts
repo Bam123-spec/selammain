@@ -579,7 +579,7 @@ async function reconcilePaidSession(session: any) {
     if (!adminNotificationEmailSentAt) {
         try {
             await sendBrevoEmail({
-                to: [{ email: "beamlaky9@gmail.com", name: "Instructor" }],
+                to: [{ email: "selamdrivingschool@gmail.com", name: "Instructor" }],
                 subject: `New Booking: ${serviceDisplayName}`,
                 htmlContent: generateInstructorBookingEmail({
                     name: customerName || "Student",
